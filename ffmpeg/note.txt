@@ -1,3 +1,0 @@
-NOTE:
-The provided ffmpeg toolkit has not been created or modified by myself, and is only present as a tool in the software.
-I do not own the files provided in this folder.

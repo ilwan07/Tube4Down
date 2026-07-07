@@ -1,22 +1,28 @@
-import pytubefix as pytube  # interact with YouTube
-import PyQt5.QtWidgets as Qt  # UI
+import pytubefix as pytube
+import PyQt5.QtWidgets as Qt
 from PyQt5 import QtCore
 from PyQt5 import QtGui
-import PyQt5.QtWebEngineWidgets as QtWeb  # web interface
-from PyQt5.QtCore import QThread, pyqtSignal  # threading
-from tkinter import filedialog  # file dialog
-from PIL import Image  # image handling
-from bs4 import BeautifulSoup  # HTML parsing
-import threading as thr  # threading
-import requests  # HTTP requests
-import urllib  # URL handling
+import PyQt5.QtWebEngineWidgets as QtWeb
+from PyQt5.QtCore import QThread, pyqtSignal
+from tkinter import filedialog
+from PIL import Image
+from bs4 import BeautifulSoup
+import threading as thr
+import requests
+import urllib
+import urllib.request
 import urllib.error
-import os  # interact with the system
-import sys  # system handling
-import glob  # list files
-import time  # time handling
-import io  # byte handling for images
+import os
+import sys
+import glob
+import time
+import io
+import logging as log
+import zipfile
+import darkdetect
 
+
+log.basicConfig(filename="latest.log", level=log.DEBUG, format="%(asctime)s - %(levelname)s - %(message)s")  # configure logging
 
 class YTDownloader(Qt.QMainWindow):
     """YouTube video downloader with GUI"""
@@ -26,8 +32,11 @@ class YTDownloader(Qt.QMainWindow):
         
         def __init__(self, to_download:dict, type:str, settings:dict):
             self.to_download = to_download  # dictionary of video ids to download in the form {video_id: file_name}
-            self.video_ids = list(self.to_download.keys())  # list of video ids
-            self.video_file_names = list(self.to_download.values())  # list of file names
+            self.video_ids = []  # list of video ids
+            self.video_file_names = []  # list of file names
+            for key, value in self.to_download.items():
+                self.video_ids.append(key)
+                self.video_file_names.append(value)
             self.type = type  # type of media to download (video or audio)
             self.settings = settings  # settings for the download
             self.video_index = -1  # current video index starting at 0 (-1 for initialization)
@@ -35,6 +44,7 @@ class YTDownloader(Qt.QMainWindow):
             self.setWindowTitle("Téléchargement")  # set the window title
             self.setWindowIcon(QtGui.QIcon("assets/download.png"))  # set the window icon
             self.build_ui()
+            log.debug("Init download progress window done")
             self.show()
 
         def build_ui(self):
@@ -42,7 +52,7 @@ class YTDownloader(Qt.QMainWindow):
             self.main_layout = Qt.QVBoxLayout()
             self.setLayout(self.main_layout)
 
-            self.download_label = Qt.QLabel("Initialisation du téléchargement ...")
+            self.download_label = Qt.QLabel("Initializing download...")
             self.download_label.setFont(QtGui.QFont("Arial", 20))
             self.download_label.setAlignment(QtCore.Qt.AlignCenter)
             self.main_layout.addWidget(self.download_label)
@@ -65,8 +75,8 @@ class YTDownloader(Qt.QMainWindow):
 
             self.bottom_info_layout.addStretch()
 
-            self.bytes_progress_label = Qt.QLabel("0 o")
-            self.bytes_total_label = Qt.QLabel("/ 0 o")
+            self.bytes_progress_label = Qt.QLabel("0 B")
+            self.bytes_total_label = Qt.QLabel("/ 0 B")
             self.bottom_info_layout.addWidget(self.bytes_progress_label)
             self.bottom_info_layout.addWidget(self.bytes_total_label)
             self.bottom_info_widget.setFont(QtGui.QFont("Arial", 16))
@@ -75,8 +85,11 @@ class YTDownloader(Qt.QMainWindow):
             """download one video at a time and call itself for each video in the list"""
             self.video_index += 1
             if self.video_index >= len(self.to_download):
+                log.info("Finished downloading videos")
+                Qt.QMessageBox.information(self, "Done", "Downloaded all videos successfully.")
                 self.close()
                 return
+            log.info(f"Starting download for video: {self.video_ids[self.video_index]}")
             video_id = self.video_ids[self.video_index]
             file_name = self.video_file_names[self.video_index]
             self.file_number_label.setText(str(self.video_index+1))
@@ -85,7 +98,7 @@ class YTDownloader(Qt.QMainWindow):
             self.video.get_best_streams()
             self.file_size = self.video.total_size
             self.bytes_total_label.setText(f"/ {YTDownloader.standard_size(self, self.file_size)}")
-            self.download_label.setText(f"Téléchargement de '{file_name}' ...")
+            self.download_label.setText(f"Downloading '{file_name}'...")
             self.progress_bar.setMaximum(self.file_size)
             self.video.progress.connect(self.update_infos)
             self.video.converting.connect(self.converting)
@@ -99,7 +112,7 @@ class YTDownloader(Qt.QMainWindow):
 
         def converting(self):
             """update the download information when the file is being converted"""
-            self.download_label.setText(f"Traitement de '{self.video_file_names[self.video_index]}' ...")
+            self.download_label.setText(f"Processing '{self.video_file_names[self.video_index]}'...")
     
 
     class Downloader(QThread):
@@ -132,6 +145,7 @@ class YTDownloader(Qt.QMainWindow):
             self.file_name = self.settings["file_name"]
             self.save_path = self.settings["save_path"]
             self.video = pytube.YouTube(self.video_url, on_progress_callback=self.emit_progress)  # video object
+            log.debug(f"Init downloader object for video {self.video_id}")
 
         def run(self):
             """start the download process"""
@@ -142,13 +156,14 @@ class YTDownloader(Qt.QMainWindow):
         
         def download(self):
             """Download the video or audio with the desired settings"""
+            log.info(f"About to start download for video {self.video_id}")
             if not self.found_stream:
                 self.get_best_streams()
             self.download_base_files()
             self.convert_file()
         
-        def get_best_streams(self) -> int:
-            """determine the best data streams depending on the quality and format settings, return the total size of the files in bytes"""
+        def get_best_streams(self):
+            """determine the best data streams depending on the quality and format settings"""
             # finding the best stream for the used settings and choosing the required resolution quality
             if self.type == "video":
                 self.video_instances = self.video.streams.filter(adaptive=True, type="video")
@@ -178,51 +193,55 @@ class YTDownloader(Qt.QMainWindow):
                 self.audio_instance_file_type = self.audio_instance.mime_type.split("/")[1]
                 self.total_size += self.audio_instance.filesize
             self.found_stream = True
+            log.debug(f"Got best stream for video {self.video_id}")
         
         def download_base_files(self):
             """Download the files (video and/or audio) with the default format in the cache (webp/mp4 for both video and audio)"""
+            log.info(f"Downloading base file for video {self.video_id}")
             if self.type == "video":
-                # download the video
-                self.video_instance.download("cache\\videos", filename=f"{self.video_id}.{self.video_instance_file_type}")
+                self.video_instance.download("cache/videos", filename=f"{self.video_id}.{self.video_instance_file_type}")
             if self.type == "audio" or self.has_audio:
-                # download the audio
-                self.audio_instance.download("cache\\audios", filename=f"{self.video_id}.{self.audio_instance_file_type}")
+                self.audio_instance.download("cache/audios", filename=f"{self.video_id}.{self.audio_instance_file_type}")
 
         def convert_file(self):
             """If needed, convert the file to the desired format, merge audio and video, and move it to the save path"""
+            log.info(f"Starting conversion for video {self.video_id}")
             self.converting.emit()  # send the converting signal to the main thread
-            ffmpeg_path = "ffmpeg\\ffmpeg.exe"  # path to the ffmpeg executable
+            if os.name == "nt":  # windows
+                ffmpeg_path = "ffmpeg/bin/ffmpeg.exe"
+            else:
+                ffmpeg_path = "ffmpeg/ffmpeg"
             if self.type == "video":
                 # convert the video to the desired format
                 if self.video_instance_file_type != self.format:
-                    os.system(f"{ffmpeg_path} -i cache\\videos\\{self.video_id}.{self.video_instance_file_type} cache\\videos\\{self.video_id}.{self.format}")
-                    os.remove(f"cache\\videos\\{self.video_id}.{self.video_instance_file_type}")
+                    os.system(f"{ffmpeg_path} -i cache/videos/{self.video_id}.{self.video_instance_file_type} cache/videos/{self.video_id}.{self.format}")
+                    os.remove(f"cache/videos/{self.video_id}.{self.video_instance_file_type}")
             if self.type == "audio" or self.has_audio:
                 # convert the audio to the desired format
                 if self.audio_instance_file_type != self.format:
-                    os.system(f"{ffmpeg_path} -i cache\\audios\\{self.video_id}.{self.audio_instance_file_type} cache\\audios\\{self.video_id}.{self.format}")
-                    os.remove(f"cache\\audios\\{self.video_id}.{self.audio_instance_file_type}")
+                    os.system(f"{ffmpeg_path} -i cache/audios/{self.video_id}.{self.audio_instance_file_type} cache/audios/{self.video_id}.{self.format}")
+                    os.remove(f"cache/audios/{self.video_id}.{self.audio_instance_file_type}")
             
             if self.has_audio:
                 # merge the audio and video
-                os.system(f"{ffmpeg_path} -i cache\\videos\\{self.video_id}.{self.format} -i cache\\audios\\{self.video_id}.{self.format} -c copy cache\\media\\{self.video_id}.{self.format}")
-                os.remove(f"cache\\videos\\{self.video_id}.{self.format}")
-                os.remove(f"cache\\audios\\{self.video_id}.{self.format}")
+                os.system(f"{ffmpeg_path} -i cache/videos/{self.video_id}.{self.format} -i cache/audios/{self.video_id}.{self.format} -c copy cache/media/{self.video_id}.{self.format}")
+                os.remove(f"cache/videos/{self.video_id}.{self.format}")
+                os.remove(f"cache/audios/{self.video_id}.{self.format}")
             
             # get the cache path of the file to move
             cache_file_name = f"{self.video_id}.{self.format}"
             if self.type == "audio":
-                output = f"cache\\audios\\{cache_file_name}"
+                output = f"cache/audios/{cache_file_name}"
             elif self.has_audio:
-                output = f"cache\\media\\{cache_file_name}"
+                output = f"cache/media/{cache_file_name}"
             else:
-                output = f"cache\\videos\\{cache_file_name}"
+                output = f"cache/videos/{cache_file_name}"
             
             # make sure the file name is not already taken
-            while os.path.exists(f"{self.save_path}\\{self.file_name}.{self.format}"):
+            while os.path.exists(f"{self.save_path}/{self.file_name}.{self.format}"):
                 self.file_name += "_"
             # rename and move the file to the final save path
-            os.rename(output, f"{self.save_path}\\{self.file_name}.{self.format}")
+            os.rename(output, f"{self.save_path}/{self.file_name}.{self.format}")
             self.finished.emit()  # send the finished signal to the main thread
     
     
@@ -234,8 +253,17 @@ class YTDownloader(Qt.QMainWindow):
         
         def get_data(self):
             """retrieve all the data from the video, including finding and downloading the channel icon"""
+            log.debug(f"Getting preview data for video {self.video_id}")
             try:
-                self.video = pytube.YouTube.from_id(self.video_id)  # video object
+                self.video = None
+                for _ in range(3):
+                    try:
+                        self.video = pytube.YouTube.from_id(self.video_id)  # video object
+                        break
+                    except:
+                        pass
+                if self.video is None:
+                    raise Exception("Failed to load video after 3 attempts")
                 self.video_title = self.video.title
                 self.channel_name = self.video.author
                 self.channel_id = self.video.channel_id
@@ -243,9 +271,12 @@ class YTDownloader(Qt.QMainWindow):
                 self.embed_url = self.video.embed_url
                 self.channel_icon_path = f"cache/channel_icons/{self.channel_id}.jpg"
                 self.channel_icon_pixmap = self.channel_icon_pixmap = None
-            except urllib.error.URLError:
-                self.video_title = "Pas d'internet"
-                self.channel_name = "Vérifiez votre connexion réseau"
+            except:
+                log.warning(f"Couldn't get video {self.video_id}")
+                self.video = None
+                self.video_title = "Error"
+                self.channel_name = "Can't get video information"
+                self.channel_id = None
                 self.embed_url = "https://youtube.com"
                 self.channel_icon_path = "assets/no_internet.png"
                 self.channel_url = "https://youtube.com"
@@ -278,7 +309,7 @@ class YTDownloader(Qt.QMainWindow):
             self.web_view.setFixedHeight(self.preview_height)
             self.web_view.setFixedWidth(round(16/9*self.preview_height))
             htmlString = '<style> body{margin:0px} </style> <iframe width="100%" height="100%" src="' + self.embed_url + '" frameborder="0" allow="autoplay; encrypted-media"></iframe>'
-            self.web_view.setHtml(htmlString, QtCore.QUrl("local"))
+            self.web_view.setHtml(htmlString, QtCore.QUrl("https://example.com"))  # needs a real domain for embed
             self.main_layout.addWidget(self.web_view)
 
             # creating the infos layout
@@ -320,6 +351,8 @@ class YTDownloader(Qt.QMainWindow):
             self.separator.setFrameShape(Qt.QFrame.HLine)
             self.separator.setFrameShadow(Qt.QFrame.Sunken)
             self.big_layout.addWidget(self.separator)
+            
+            log.debug(f"Built preview widget for video {self.video_id}")
         
         def get_channel_icon_url(self) -> str:
             """finds the channel icon URL from the channel page"""
@@ -330,10 +363,12 @@ class YTDownloader(Qt.QMainWindow):
                 self.channel_icon_url = meta_tag['content']  # get the channel icon URL
                 return self.channel_icon_url
             else:
-                return "https://static.thenounproject.com/png/2247019-200.png"
+                return "https://static.thenounproject.com/png/2247019-200.png"  # not found
         
         def download_channel_icon(self, path:str):
             """downloads the channel icon in the given folder"""
+            if self.channel_id is None:
+                return  # error on video gathering
             if not os.path.exists(path):
                 os.makedirs(path)  # create the destination folder if it doesn't exist
             image_url = self.get_channel_icon_url()  # get the channel icon URL
@@ -359,6 +394,7 @@ class YTDownloader(Qt.QMainWindow):
 
         def __init__(self, search_query:str):
             super().__init__()
+            log.debug("Init videos info thread")
             self.running = True  # is the thread running
             self.search_query = search_query  # search query
 
@@ -369,16 +405,20 @@ class YTDownloader(Qt.QMainWindow):
                 self.search_results = self.search.results  # get the search results list
 
                 for result in self.search_results:  # for each result
+                    if type(result) != pytube.YouTube:  # skip if not a video
+                        continue
                     result_id = result.video_id
                     self.preview = YTDownloader.VideoInfos(result_id)  # create a video infos widget
                     self.preview.get_data()  # load the required data for the video infos widget
                     if self.running:
                         self.video_loaded.emit(self.preview)  # send the video infos widget, it will be build in the main thread to avoid errors
+                        log.debug(f"Loaded info for video {result_id}")
                     else:
                         return
                 self.finished.emit()  # send the finished signal only if the thread is not stopped
             
             except urllib.error.URLError:  # if there is no internet
+                log.error("Couldn't search for videos: urllib error")
                 self.search_results = []
                 self.preview = YTDownloader.VideoInfos("00000000000")
                 self.preview.get_data()
@@ -407,8 +447,9 @@ class YTDownloader(Qt.QMainWindow):
                 self.download_video_thumbnail("cache/thumbnails")  # download the video thumbnail in the cache folder
                 self.thumbnail_path = f"cache/thumbnails/{self.video_id}.jpg"  # thumbnail path
             except urllib.error.URLError:
-                self.video_title = "Pas d'internet"
-                self.channel_name = "Vérifiez votre connexion réseau"
+                log.warning(f"Couldn't get info for video to download {self.video_id}")
+                self.video_title = "No internet"
+                self.channel_name = "Check your network connection"
                 self.thumbnail_path = "assets/no_internet.png"
 
         def build_widget(self):
@@ -464,6 +505,8 @@ class YTDownloader(Qt.QMainWindow):
             self.separator.setFrameShape(Qt.QFrame.HLine)
             self.separator.setFrameShadow(Qt.QFrame.Sunken)
             self.big_layout.addWidget(self.separator)
+            
+            log.debug(f"Built widget for download info for video {self.video_id}")
         
         def download_video_thumbnail(self, path:str):
             """downloads the video thumbnail in the given folder"""
@@ -484,10 +527,11 @@ class YTDownloader(Qt.QMainWindow):
 
             image = image.crop((left, top, right, bottom))
             image.save(f"{path}/{self.video_id}.jpg", "JPEG")  # save the image in the file
+            log.debug(f"Downloaded thumbnail for video {self.video_id}")
     
 
     class DownloadInfosThread(QThread):
-        """Thread to load the download infos widgets in the background after selecting a video"""
+        """Thread to load the download info widgets in the background after selecting a video"""
         finished = pyqtSignal(object)  # signal to send when the thread is finished with the download infos widgets
 
         def __init__(self, video_id:str):
@@ -500,25 +544,66 @@ class YTDownloader(Qt.QMainWindow):
             self.preview.get_data()  # load the required data for the widget
             self.finished.emit(self.preview)  # send the finished signal with the widget which will have every required data already loaded
 
-    
 
-    def test(self):
-        """video_id = "WO2b03Zdu4Q"
-        self.downloader_thread = self.Downloader(video_id, "video", {"quality": "720p", "has_audio": True, "format": "mkv", "file_name": "test", "save_path": "C:\\Users\\ilwan\\Downloads"})
-        self.downloader_thread.finished.connect(lambda: print("thread finished"))
-        self.downloader_thread.start()
-        print("thread started")"""
-        pass
-    
+
     def start(self):
         """creates UI and launches the interactive GUI"""
+        log.debug("Starting downloader")
         super().__init__()  # initialize the UI module
         self.setWindowTitle("YouTube Downloader")  # set the window title
         self.setWindowIcon(QtGui.QIcon("assets/icon.png"))  # set the window icon
         self.build_ui()  # build the UI
+        log.debug("Built app UI")
         self.setup_software()  # setup the UI, the events and the variables
+        log.debug("Have set up the app")
         self.showMaximized()  # maximize the window
         self.show()  # display the UI
+        log.debug("Displaying app")
+        if not os.path.exists("ffmpeg/ffmpeg") and not os.path.exists("ffmpeg/ffmpeg.exe"):  # if ffmpeg is not installed
+            self.download_ffmpeg()  #TODO: popup while downloading
+    
+    
+    def download_ffmpeg(self):
+            """download the ffmpeg binary in the ffmpeg folder"""
+            log.info("Downloading ffmpeg binary")
+            if not os.path.exists("ffmpeg/"):
+                os.makedirs("ffmpeg/")
+            if os.name == "nt":  # windows
+                url = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
+                zip_path = "ffmpeg/ffmpeg.zip"
+                urllib.request.urlretrieve(url, zip_path)
+                with zipfile.ZipFile(zip_path, "r") as archive:
+                    files = [name for name in archive.namelist() if name and not name.endswith("/")]
+                    top_level_dirs = {name.split("/", 1)[0] for name in files if "/" in name}
+
+                    if len(top_level_dirs) == 1 and all(name.startswith(next(iter(top_level_dirs)) + "/") for name in files):
+                        root_dir = next(iter(top_level_dirs)) + "/"
+                        for member in archive.infolist():
+                            if not member.filename.startswith(root_dir):
+                                continue
+
+                            relative_path = member.filename[len(root_dir):]
+                            if not relative_path:
+                                continue
+
+                            destination = os.path.join("ffmpeg", relative_path)
+                            if member.is_dir():
+                                os.makedirs(destination, exist_ok=True)
+                            else:
+                                os.makedirs(os.path.dirname(destination), exist_ok=True)
+                                with archive.open(member) as source, open(destination, "wb") as target:
+                                    target.write(source.read())
+                    else:
+                        archive.extractall("ffmpeg")
+                os.remove(zip_path)
+            else:  # linux and mac
+                url = "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz"
+                tar_path = "ffmpeg/ffmpeg.tar.xz"
+                os.system(f"curl -L {url} -o {tar_path}")
+                os.system(f"tar -xf {tar_path} -C ffmpeg --strip-components=1")
+                os.remove(tar_path)
+            log.info("Downloaded ffmpeg binary")
+
     
     def build_ui(self):
         """creates the UI base layout and widgets"""
@@ -559,7 +644,7 @@ class YTDownloader(Qt.QMainWindow):
         self.videos_layout.addWidget(self.search_widget)
 
         self.searchbar = Qt.QLineEdit()
-        self.searchbar.setPlaceholderText("Rechercher une vidéo")
+        self.searchbar.setPlaceholderText("Search for a video")
         self.searchbar.setFixedHeight(30)
         self.searchbar.setFont(QtGui.QFont("Arial", 16))
         self.search_layout.addWidget(self.searchbar)
@@ -584,7 +669,7 @@ class YTDownloader(Qt.QMainWindow):
         self.settings_tab.setStyleSheet("QTabBar::tab { font-size: 16px; width: 80px; height: 30px; }")
 
         self.video_tab = Qt.QWidget()
-        self.settings_tab.addTab(self.video_tab, "Vidéo")
+        self.settings_tab.addTab(self.video_tab, "Video")
         self.settings_video_tab = Qt.QVBoxLayout(self.video_tab)
         self.settings_video = Qt.QVBoxLayout()
         self.settings_video_scroll = Qt.QScrollArea()
@@ -612,22 +697,17 @@ class YTDownloader(Qt.QMainWindow):
         self.video_hasAudio_box.setFont(QtGui.QFont("Arial", 16))
         self.video_hasAudio_layout = Qt.QVBoxLayout()
         self.video_hasAudio_box.setLayout(self.video_hasAudio_layout)
-        self.settings_video_hasAudio = Qt.QCheckBox("Inclure l'audio dans la vidéo")
+        self.settings_video_hasAudio = Qt.QCheckBox("Include audio")
         self.settings_video_hasAudio.setChecked(True)
         self.video_hasAudio_layout.addWidget(self.settings_video_hasAudio)
         self.settings_video.addWidget(self.video_hasAudio_box)
 
         self.settings_video_quality = Qt.QButtonGroup()
         self.video_qualities = ["Max", "2160p 4K", "1440p 2K", "1080p FHD", "720p HD", "480p SD", "360p", "240p", "144p"]
-        self.video_quality_box = Qt.QGroupBox("Qualité vidéo")
+        self.video_quality_box = Qt.QGroupBox("Video quality")
         self.video_quality_box.setFont(QtGui.QFont("Arial", 16))
         self.video_quality_layout = Qt.QVBoxLayout()
         self.video_quality_box.setLayout(self.video_quality_layout)
-        video_quality_info = Qt.QLabel("Pour chaque vidéo, la qualité maximale sera utilisée si la qualité sélectionnée n'est pas disponible.")
-        video_quality_info.setWordWrap(True)
-        video_quality_info.setFont(QtGui.QFont("Arial", 12))
-        video_quality_info.setStyleSheet("color: gray;")
-        self.video_quality_layout.addWidget(video_quality_info)
         buttons = [Qt.QRadioButton(quality) for quality in self.video_qualities]
         buttons[0].setChecked(True)
         for button in buttons:
@@ -636,8 +716,8 @@ class YTDownloader(Qt.QMainWindow):
         self.settings_video.addWidget(self.video_quality_box)
 
         self.settings_video_format = Qt.QButtonGroup()
-        self.video_formats = ["MP4", "MOV", "AVI", "MKV", "WebM"]
-        self.video_format_box = Qt.QGroupBox("Format vidéo")
+        self.video_formats = ["mp4", "mkv", "mov", "avi", "webm"]
+        self.video_format_box = Qt.QGroupBox("Video format")
         self.video_format_box.setFont(QtGui.QFont("Arial", 16))
         self.video_format_layout = Qt.QVBoxLayout()
         self.video_format_box.setLayout(self.video_format_layout)
@@ -652,8 +732,8 @@ class YTDownloader(Qt.QMainWindow):
         
         # audio settings
         self.settings_audio_format = Qt.QButtonGroup()
-        self.audio_formats = ["MP3", "MP4", "M4A", "OGG", "WAV", "FLAC"]
-        self.audio_format_box = Qt.QGroupBox("Format audio")
+        self.audio_formats = ["mp3", "wav", "m4a", "flac", "ogg"]
+        self.audio_format_box = Qt.QGroupBox("Audio format")
         self.audio_format_box.setFont(QtGui.QFont("Arial", 16))
         self.audio_format_layout = Qt.QVBoxLayout()
         self.audio_format_box.setLayout(self.audio_format_layout)
@@ -687,7 +767,7 @@ class YTDownloader(Qt.QMainWindow):
         self.download_button_layout.addWidget(self.add_video_widget)
 
         self.add_video_field = Qt.QLineEdit()
-        self.add_video_field.setPlaceholderText("Ajouter une vidéo avec l'URL")
+        self.add_video_field.setPlaceholderText("Add video from URL")
         self.add_video_field.setFixedHeight(30)
         self.add_video_field.setFont(QtGui.QFont("Arial", 14))
         self.add_video_layout.addWidget(self.add_video_field)
@@ -697,7 +777,7 @@ class YTDownloader(Qt.QMainWindow):
         self.add_video_button.setIcon(QtGui.QIcon("assets/add.png"))
         self.add_video_layout.addWidget(self.add_video_button)
 
-        self.download_button = Qt.QPushButton("Télécharger")
+        self.download_button = Qt.QPushButton("Download")
         self.download_button.setFixedHeight(50)
         self.download_button.setFont(QtGui.QFont("Arial", 20))
         self.download_button_layout.addWidget(self.download_button)
@@ -720,7 +800,7 @@ class YTDownloader(Qt.QMainWindow):
         """downloads the selected videos with the selected settings after asking for the save folder"""
         if not self.selected_videos:
             return
-        self.save_path = filedialog.askdirectory()  # ask for the save folder
+        self.save_path = filedialog.askdirectory(initialdir=f"{os.path.expanduser("~")}/Downloads")  # ask for the save folder
         if not self.save_path:
             return
         
@@ -767,6 +847,7 @@ class YTDownloader(Qt.QMainWindow):
                 video_id = yt.video_id
                 self.video_add(video_id)
                 self.add_video_field.clear()
+                log.debug(f"Added video {video_id} as link")
             except (pytube.exceptions.RegexMatchError, pytube.exceptions.VideoUnavailable):
                 self.add_video_field.clear()
     
@@ -782,7 +863,7 @@ class YTDownloader(Qt.QMainWindow):
         self.clear_layout(self.videos_scroll_layout)  # clear the previous search results
         self.search_query = self.searchbar.text()  # get the search query
         # creating loading label
-        self.loading_label = Qt.QLabel("Chargement des résultats ...")
+        self.loading_label = Qt.QLabel("Loading results...")
         self.loading_label.setFont(QtGui.QFont("Arial", 20))
         self.loading_label.setAlignment(QtCore.Qt.AlignCenter)
         self.videos_scroll_layout.insertWidget(self.videos_scroll_layout.count()-1, self.loading_label)  # display the loading label
@@ -792,6 +873,7 @@ class YTDownloader(Qt.QMainWindow):
         self.search_display_thread.video_loaded.connect(self.load_channel_icon)  # load the channel icons when the preview is loaded
         self.search_display_thread.finished.connect(self.remove_loading_label)  # remove the loading label when the thread is finished
         self.search_display_thread.start()  # start the search thread
+        log.info(f"Searching with query '{self.search_query}'")
     
     def show_video_preview(self, preview:VideoInfos):
         """displays a video preview"""
@@ -848,7 +930,7 @@ class YTDownloader(Qt.QMainWindow):
     
     def standard_size(self, size:int) -> str:
         """converts a size in bytes to a human readable size"""
-        units = ["o", "Ko", "Mo", "Go", "To", "Po", "Eo", "Zo", "Yo"]
+        units = ["B", "KB", "MB", "GB", "TB", "PB"]
         unit = 0
         while size >= 1024:
             size /= 1024
@@ -882,19 +964,39 @@ def create_cache():
             os.makedirs(f"cache/{folder}")
 
 if __name__ == "__main__":
-    #try:
+    try:
         create_cache()
-        clear_cache()
-        if os.name == "posix":  # if the system is some sort of linux
-            os.system("chmod -R 777 cache")  # get full permissions to the cache folder
+        log.debug("Created cache")
+        if os.name == "posix":
             os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = "--no-sandbox"  # set the environment variable for the web engine
+            log.debug("Set flags for web engine")
         App = Qt.QApplication(sys.argv)  # creating the app
+        App.setStyle("fusion")
+        if darkdetect.isDark():
+            # dark mode palette
+            palette = QtGui.QPalette()
+            palette.setColor(QtGui.QPalette.Window, QtGui.QColor(53, 53, 53))
+            palette.setColor(QtGui.QPalette.WindowText, QtCore.Qt.white)
+            palette.setColor(QtGui.QPalette.Base, QtGui.QColor(25, 25, 25))
+            palette.setColor(QtGui.QPalette.AlternateBase, QtGui.QColor(53, 53, 53))
+            palette.setColor(QtGui.QPalette.ToolTipBase, QtCore.Qt.black)
+            palette.setColor(QtGui.QPalette.ToolTipText, QtCore.Qt.white)
+            palette.setColor(QtGui.QPalette.Text, QtCore.Qt.white)
+            palette.setColor(QtGui.QPalette.Button, QtGui.QColor(53, 53, 53))
+            palette.setColor(QtGui.QPalette.ButtonText, QtCore.Qt.white)
+            palette.setColor(QtGui.QPalette.BrightText, QtCore.Qt.red)
+            palette.setColor(QtGui.QPalette.Link, QtGui.QColor(42, 130, 218))
+            palette.setColor(QtGui.QPalette.Highlight, QtGui.QColor(42, 130, 218))
+            palette.setColor(QtGui.QPalette.HighlightedText, QtCore.Qt.black)
+            App.setPalette(palette)
         Window = YTDownloader()  # creating the GUI
-        Window.test()
         Window.start()  # starting the GUI
+        log.info("Starting the app")
         App.exec_()  # executing the app
-    #except Exception as error:
-        #error.with_traceback()  # display exception traceback if occured
-    #finally:
+    except Exception as e:
+        log.fatal(f"An error occurred: {e}")
+    finally:
         # always clear cache
         clear_cache()
+        log.info("Cleared cache")
+        log.info("Exiting the app")
