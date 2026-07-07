@@ -142,7 +142,12 @@ class YTDownloader(Qt.QMainWindow):
                 self.quality = None
                 self.has_audio = None
             self.format = self.settings["format"].lower()
-            self.file_name = self.settings["file_name"]
+            # Sanitize file name by removing illegal Windows characters
+            illegal_chars = r'\/:*?"<>|'
+            sanitized_name = self.settings["file_name"]
+            for char in illegal_chars:
+                sanitized_name = sanitized_name.replace(char, "")
+            self.file_name = sanitized_name
             self.save_path = self.settings["save_path"]
             self.video = pytube.YouTube(self.video_url, on_progress_callback=self.emit_progress)  # video object
             log.debug(f"Init downloader object for video {self.video_id}")
@@ -208,7 +213,7 @@ class YTDownloader(Qt.QMainWindow):
             log.info(f"Starting conversion for video {self.video_id}")
             self.converting.emit()  # send the converting signal to the main thread
             if os.name == "nt":  # windows
-                ffmpeg_path = "ffmpeg/bin/ffmpeg.exe"
+                ffmpeg_path = "ffmpeg\\bin\\ffmpeg.exe"
             else:
                 ffmpeg_path = "ffmpeg/ffmpeg"
             if self.type == "video":
@@ -559,7 +564,7 @@ class YTDownloader(Qt.QMainWindow):
         self.showMaximized()  # maximize the window
         self.show()  # display the UI
         log.debug("Displaying app")
-        if not os.path.exists("ffmpeg/ffmpeg") and not os.path.exists("ffmpeg/ffmpeg.exe"):  # if ffmpeg is not installed
+        if not os.path.exists("ffmpeg/ffmpeg") and not os.path.exists("ffmpeg/bin/ffmpeg.exe"):  # if ffmpeg is not installed
             self.download_ffmpeg()  #TODO: popup while downloading
     
     
