@@ -19,6 +19,7 @@ import time
 import io
 import logging as log
 import zipfile
+import tarfile
 import darkdetect
 
 
@@ -550,6 +551,134 @@ class YTDownloader(Qt.QMainWindow):
             self.finished.emit(self.preview)  # send the finished signal with the widget which will have every required data already loaded
 
 
+    class FfmpegDownloadDialog(Qt.QDialog):
+        """Blocking, non-closable popup shown while ffmpeg is being downloaded, with a progress bar"""
+
+        def __init__(self, parent=None):
+            super().__init__(parent)
+            self.setWindowTitle("Downloading ffmpeg")
+            self.setWindowIcon(QtGui.QIcon("assets/download.png"))
+            self.setModal(True)  # blocks interaction with the main window
+            self.setFixedSize(420, 130)
+            # remove the close (X) button so the user can't dismiss it manually
+            self.setWindowFlags(QtCore.Qt.Dialog | QtCore.Qt.CustomizeWindowHint | QtCore.Qt.WindowTitleHint)
+
+            self.layout_ = Qt.QVBoxLayout()
+            self.setLayout(self.layout_)
+
+            self.label = Qt.QLabel("Downloading ffmpeg, please wait...")
+            self.label.setWordWrap(True)
+            self.label.setFont(QtGui.QFont("Arial", 12))
+            self.label.setAlignment(QtCore.Qt.AlignCenter)
+            self.layout_.addWidget(self.label)
+
+            self.progress_bar = Qt.QProgressBar()
+            self.progress_bar.setValue(0)
+            self.layout_.addWidget(self.progress_bar)
+
+            self.size_label = Qt.QLabel("")
+            self.size_label.setAlignment(QtCore.Qt.AlignCenter)
+            self.layout_.addWidget(self.size_label)
+
+        def update_progress(self, downloaded:int, total:int):
+            """update the progress bar and size label, falling back to an indeterminate bar if the size is unknown"""
+            if total > 0:
+                self.progress_bar.setMaximum(total)
+                self.progress_bar.setValue(downloaded)
+                self.size_label.setText(f"{YTDownloader.standard_size(self, downloaded)} / {YTDownloader.standard_size(self, total)}")
+            else:
+                self.progress_bar.setMaximum(0)  # indeterminate/"busy" progress bar
+                self.size_label.setText(YTDownloader.standard_size(self, downloaded))
+
+        def closeEvent(self, event):
+            """prevent the user from closing the popup while the download is in progress"""
+            event.ignore()
+
+
+    class FfmpegDownloadThread(QThread):
+        """Downloads and extracts the ffmpeg binary in the background so the UI thread never blocks"""
+        progress = pyqtSignal(int, int)  # downloaded bytes, total bytes
+        finished = pyqtSignal()
+        error = pyqtSignal(str)
+
+        def run(self):
+            try:
+                self.download_ffmpeg()
+                self.finished.emit()
+            except Exception as e:
+                log.error(f"Failed to download ffmpeg: {e}")
+                self.error.emit(str(e))
+
+        def download_ffmpeg(self):
+            """download the ffmpeg binary in the ffmpeg folder and signal progress"""
+            log.info("Downloading ffmpeg binary")
+            if not os.path.exists("ffmpeg/"):
+                os.makedirs("ffmpeg/")
+            if os.name == "nt":  # windows
+                url = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
+                archive_path = "ffmpeg/ffmpeg.zip"
+            else:  # linux and mac
+                url = "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz"
+                archive_path = "ffmpeg/ffmpeg.tar.xz"
+
+            self.download_file(url, archive_path)
+
+            if os.name == "nt":
+                self.extract_zip(archive_path)
+            else:
+                self.extract_tar(archive_path)
+            os.remove(archive_path)
+            log.info("Downloaded ffmpeg binary")
+
+        def download_file(self, url:str, destination:str):
+            """stream the file to disk while emitting progress signals"""
+            with requests.get(url, stream=True, timeout=30) as response:
+                response.raise_for_status()
+                total_size = int(response.headers.get("content-length", 0))
+                downloaded = 0
+                with open(destination, "wb") as f:
+                    for chunk in response.iter_content(chunk_size=1024*1024):
+                        if chunk:
+                            f.write(chunk)
+                            downloaded += len(chunk)
+                            self.progress.emit(downloaded, total_size)
+
+        def extract_zip(self, zip_path:str):
+            """extract the ffmpeg zip archive on windows, flattening the top-level version folder"""
+            with zipfile.ZipFile(zip_path, "r") as archive:
+                files = [name for name in archive.namelist() if name and not name.endswith("/")]
+                top_level_dirs = {name.split("/", 1)[0] for name in files if "/" in name}
+
+                if len(top_level_dirs) == 1 and all(name.startswith(next(iter(top_level_dirs)) + "/") for name in files):
+                    root_dir = next(iter(top_level_dirs)) + "/"
+                    for member in archive.infolist():
+                        if not member.filename.startswith(root_dir):
+                            continue
+
+                        relative_path = member.filename[len(root_dir):]
+                        if not relative_path:
+                            continue
+
+                        destination = os.path.join("ffmpeg", relative_path)
+                        if member.is_dir():
+                            os.makedirs(destination, exist_ok=True)
+                        else:
+                            os.makedirs(os.path.dirname(destination), exist_ok=True)
+                            with archive.open(member) as source, open(destination, "wb") as target:
+                                target.write(source.read())
+                else:
+                    archive.extractall("ffmpeg")
+
+        def extract_tar(self, tar_path:str):
+            """extract the ffmpeg tar.xz archive on linux/mac, stripping the top-level version folder (equivalent to tar --strip-components=1)"""
+            with tarfile.open(tar_path, "r:xz") as archive:
+                for member in archive.getmembers():
+                    parts = member.name.split("/", 1)
+                    if len(parts) < 2 or not parts[1]:
+                        continue  # skip the top-level directory entry itself
+                    member.name = parts[1]  # strip the first path component
+                    archive.extract(member, "ffmpeg")
+
 
     def start(self):
         """creates UI and launches the interactive GUI"""
@@ -565,49 +694,25 @@ class YTDownloader(Qt.QMainWindow):
         self.show()  # display the UI
         log.debug("Displaying app")
         if not os.path.exists("ffmpeg/ffmpeg") and not os.path.exists("ffmpeg/bin/ffmpeg.exe"):  # if ffmpeg is not installed
-            self.download_ffmpeg()  #TODO: popup while downloading
+            self.download_ffmpeg()
     
     
     def download_ffmpeg(self):
-            """download the ffmpeg binary in the ffmpeg folder"""
-            log.info("Downloading ffmpeg binary")
-            if not os.path.exists("ffmpeg/"):
-                os.makedirs("ffmpeg/")
-            if os.name == "nt":  # windows
-                url = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
-                zip_path = "ffmpeg/ffmpeg.zip"
-                urllib.request.urlretrieve(url, zip_path)
-                with zipfile.ZipFile(zip_path, "r") as archive:
-                    files = [name for name in archive.namelist() if name and not name.endswith("/")]
-                    top_level_dirs = {name.split("/", 1)[0] for name in files if "/" in name}
+        """show a blocking popup with a progress bar while ffmpeg is downloaded and extracted in the background"""
+        self.ffmpeg_dialog = self.FfmpegDownloadDialog(self)
+        self.ffmpeg_thread = self.FfmpegDownloadThread()
+        self.ffmpeg_thread.progress.connect(self.ffmpeg_dialog.update_progress)
+        self.ffmpeg_thread.finished.connect(self.ffmpeg_dialog.accept)  # close the popup once the download is done
+        self.ffmpeg_thread.error.connect(self.on_ffmpeg_download_error)
+        self.ffmpeg_thread.start()
+        self.ffmpeg_dialog.exec_()  # blocks the rest of the UI, keeps the app responsive since the download runs in the thread
 
-                    if len(top_level_dirs) == 1 and all(name.startswith(next(iter(top_level_dirs)) + "/") for name in files):
-                        root_dir = next(iter(top_level_dirs)) + "/"
-                        for member in archive.infolist():
-                            if not member.filename.startswith(root_dir):
-                                continue
 
-                            relative_path = member.filename[len(root_dir):]
-                            if not relative_path:
-                                continue
-
-                            destination = os.path.join("ffmpeg", relative_path)
-                            if member.is_dir():
-                                os.makedirs(destination, exist_ok=True)
-                            else:
-                                os.makedirs(os.path.dirname(destination), exist_ok=True)
-                                with archive.open(member) as source, open(destination, "wb") as target:
-                                    target.write(source.read())
-                    else:
-                        archive.extractall("ffmpeg")
-                os.remove(zip_path)
-            else:  # linux and mac
-                url = "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz"
-                tar_path = "ffmpeg/ffmpeg.tar.xz"
-                os.system(f"curl -L {url} -o {tar_path}")
-                os.system(f"tar -xf {tar_path} -C ffmpeg --strip-components=1")
-                os.remove(tar_path)
-            log.info("Downloaded ffmpeg binary")
+    def on_ffmpeg_download_error(self, message:str):
+        """close the popup and warn the user if the ffmpeg download failed"""
+        log.error(f"ffmpeg download failed: {message}")
+        self.ffmpeg_dialog.reject()
+        Qt.QMessageBox.critical(self, "Error", f"Failed to download ffmpeg:\n{message}\n\nThe app will not work until ffmpeg is installed.\nTry checking your internet and restart the app.")
 
     
     def build_ui(self):
