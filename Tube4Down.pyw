@@ -43,7 +43,7 @@ class YTDownloader(Qt.QMainWindow):
             self.video_index = -1  # current video index starting at 0 (-1 for initialization)
             super().__init__()  # initialize the window
             self.setWindowTitle("Téléchargement")  # set the window title
-            self.setWindowIcon(QtGui.QIcon("assets/download.png"))  # set the window icon
+            self.setWindowIcon(QtGui.QIcon("assets/icon.ico"))  # set the window icon
             self.build_ui()
             log.debug("Init download progress window done")
             self.show()
@@ -557,7 +557,7 @@ class YTDownloader(Qt.QMainWindow):
         def __init__(self, parent=None):
             super().__init__(parent)
             self.setWindowTitle("Downloading ffmpeg")
-            self.setWindowIcon(QtGui.QIcon("assets/download.png"))
+            self.setWindowIcon(QtGui.QIcon("assets/icon.ico"))
             self.setModal(True)  # blocks interaction with the main window
             self.setFixedSize(420, 130)
             # remove the close (X) button so the user can't dismiss it manually
@@ -685,7 +685,7 @@ class YTDownloader(Qt.QMainWindow):
         log.debug("Starting downloader")
         super().__init__()  # initialize the UI module
         self.setWindowTitle("YouTube Downloader")  # set the window title
-        self.setWindowIcon(QtGui.QIcon("assets/icon.png"))  # set the window icon
+        self.setWindowIcon(QtGui.QIcon("assets/download.png"))  # set the window icon
         self.build_ui()  # build the UI
         log.debug("Built app UI")
         self.setup_software()  # setup the UI, the events and the variables

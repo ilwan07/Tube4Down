@@ -1,0 +1,67 @@
+name: Build Windows Installer
+
+on:
+  push:
+    branches: [ main ]
+  release:
+    types: [published]
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller
+          pip install -r requirements.txt
+
+      - name: Build with PyInstaller
+        run: pyinstaller build/tube4down.spec
+
+      - name: Set version (release tag or dev build)
+        id: set_version
+        shell: pwsh
+        run: |
+          if ("${{ github.event_name }}" -eq "release") {
+            $version = "${{ github.event.release.tag_name }}" -replace '^v',''
+          } else {
+            $version = "0.0.0-dev.$("${{ github.sha }}".Substring(0,7))"
+          }
+          echo "APP_VERSION=$version" >> $env:GITHUB_ENV
+          echo "app_version=$version" >> $env:GITHUB_OUTPUT
+
+      - name: Compile installer with Inno Setup
+        run: |
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" build\installer.iss
+
+      - name: Build portable zip (standalone exe + assets)
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path dist_zip\Tube4Down | Out-Null
+          Copy-Item dist\Tube4Down.exe dist_zip\Tube4Down\
+          Copy-Item assets dist_zip\Tube4Down\assets -Recurse
+          Compress-Archive -Path dist_zip\Tube4Down\* `
+            -DestinationPath "dist_installer\Tube4Down-Portable-$env:APP_VERSION.zip"
+
+      # Always upload as a workflow artifact (lets you download & test builds from any push)
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: Tube4Down-${{ steps.set_version.outputs.app_version }}
+          path: dist_installer/*
+
+      # Only attach to the actual GitHub Release when triggered by a published release
+      - name: Upload to GitHub Release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist_installer/*
