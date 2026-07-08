@@ -56,7 +56,7 @@ jobs:
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: Tube4Down-${{ steps.set_version.outputs.app_version }}
+          name: Tube4Down-Windows-${{ steps.set_version.outputs.app_version }}
           path: dist_installer/*
 
       # Only attach to the actual GitHub Release when triggered by a published release
@@ -89,11 +89,12 @@ jobs:
           echo "app_version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Build Flatpak
-        uses: flatpak/flatpak-github-actions/flatpak-builder@v6
-        with:
-          bundle: Tube4Down-${{ steps.set_version.outputs.app_version }}.flatpak
-          manifest-path: flatpak/io.github.ilwan07.Tube4Down.yml
-          cache-key: flatpak-builder-${{ github.sha }}
+        run: |
+          flatpak-builder --disable-rofiles-fuse --force-clean \
+            --repo=repo build flatpak/io.github.ilwan07.Tube4Down.yml
+          flatpak build-bundle repo \
+            "Tube4Down-${{ steps.set_version.outputs.app_version }}.flatpak" \
+            io.github.ilwan07.Tube4Down
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4

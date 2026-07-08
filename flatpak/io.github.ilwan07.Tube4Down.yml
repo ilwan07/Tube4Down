@@ -2,11 +2,7 @@ id: io.github.ilwan07.Tube4Down
 runtime: org.kde.Platform
 runtime-version: '5.15-24.08'      # Qt5/PyQt5 branch
 sdk: org.kde.Sdk
-base: com.riverbankcomputing.PyQt.BaseApp
-base-version: '5.15-24.08'
 command: tube4down
-cleanup-commands:
-  - /app/cleanup-BaseApp.sh
 
 finish-args:
   - --socket=wayland
@@ -14,9 +10,32 @@ finish-args:
   - --share=ipc
   - --device=dri              # GPU accel for Qt rendering
   - --share=network           # app downloads videos
-  - --filesystem=xdg-download # lets the app save finished downloads to ~/Downloads
+  - --filesystem=host         # lets the app save finished downloads anywhere
 
 modules:
+  - name: mit-krb5           # for PyQtWebEngine to work
+    buildsystem: simple
+    sources:
+      - type: archive
+        url: https://kerberos.org/dist/krb5/1.21/krb5-1.21.3.tar.gz
+        sha256: b7a4cd5ead67fb08b980b21abd150ff7217e85ea320c9ed0c6dadd304840ad35
+    build-commands:
+      - cd src && autoreconf -i
+      - cd src && ./configure --prefix=/app --disable-static --enable-shared
+      - cd src && make -j$(nproc)
+      - cd src && make install
+
+  - name: python3-deps
+    buildsystem: simple
+    build-options:
+      build-args:
+        - --share=network       # pip needs internet to fetch PyPI wheels at build time
+    build-commands:
+      - pip3 install --prefix=/app --no-cache-dir -r requirements.txt
+    sources:
+      - type: file
+        path: ../requirements.txt
+
   - name: tube4down
     buildsystem: simple
     build-commands:
