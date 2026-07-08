@@ -1,0 +1,39 @@
+id: io.github.ilwan07.Tube4Down
+runtime: org.kde.Platform
+runtime-version: '5.15-24.08'      # Qt5/PyQt5 branch
+sdk: org.kde.Sdk
+base: com.riverbankcomputing.PyQt.BaseApp
+base-version: '5.15-24.08'
+command: tube4down
+cleanup-commands:
+  - /app/cleanup-BaseApp.sh
+
+finish-args:
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --share=ipc
+  - --device=dri              # GPU accel for Qt rendering
+  - --share=network           # app downloads videos
+  - --filesystem=xdg-download # lets the app save finished downloads to ~/Downloads
+
+modules:
+  - name: tube4down
+    buildsystem: simple
+    build-commands:
+      # main script + assets
+      - install -Dm755 Tube4Down.pyw /app/bin/Tube4Down.pyw
+      - cp -r assets /app/bin/assets
+      # launcher wrapper (see below)
+      - install -Dm755 flatpak/tube4down.sh /app/bin/tube4down
+      # workaround: cache/ffmpeg become symlinks into Flatpak's writable
+      # persistent storage, so the app's own mkdir("cache") etc. still works
+      # even though /app is read-only at runtime.
+      - ln -s /var/data/Tube4Down/cache /app/bin/cache
+      - ln -s /var/data/Tube4Down/ffmpeg /app/bin/ffmpeg
+      # desktop integration
+      - install -Dm644 flatpak/io.github.ilwan07.Tube4Down.desktop /app/share/applications/io.github.ilwan07.Tube4Down.desktop
+      - install -Dm644 flatpak/io.github.ilwan07.Tube4Down.metainfo.xml /app/share/metainfo/io.github.ilwan07.Tube4Down.metainfo.xml
+      - install -Dm644 assets/icon.png /app/share/icons/hicolor/256x256/apps/io.github.ilwan07.Tube4Down.png
+    sources:
+      - type: dir
+        path: ../             # repo root relative to this manifest's location

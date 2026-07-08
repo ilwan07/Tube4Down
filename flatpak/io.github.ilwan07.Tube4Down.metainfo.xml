@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.ilwan07.Tube4Down</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPLv3</project_license>
+  <name>Tube4Down</name>
+  <summary>YouTube video downloader</summary>
+  <description>
+    <p>Tube4Down Allows you to download YouTube videos on a local application, with support for multiple features such as batch downloading, renaming files before the download, support for conversion to multiple formats, and downloads up to 4K quality.</p>
+  </description>
+  <launchable type="desktop-id">io.github.ilwan07.Tube4Down.desktop</launchable>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="0.2.0" date="2026-07-08"/>
+  </releases>
+</component>

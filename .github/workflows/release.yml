@@ -7,7 +7,7 @@ on:
     types: [published]
 
 jobs:
-  build:
+  build-windows:
     runs-on: windows-latest
     steps:
       - name: Checkout
@@ -65,3 +65,44 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: dist_installer/*
+
+  build-flatpak:
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:kde-5.15-24.08
+      options: --privileged
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set version (release tag or dev build)
+        id: set_version
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            version="${{ github.event.release.tag_name }}"
+            version="${version#v}"
+          else
+            version="0.0.0-dev.$(echo ${{ github.sha }} | cut -c1-7)"
+          fi
+          echo "APP_VERSION=$version" >> "$GITHUB_ENV"
+          echo "app_version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Build Flatpak
+        uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        with:
+          bundle: Tube4Down-${{ steps.set_version.outputs.app_version }}.flatpak
+          manifest-path: flatpak/io.github.ilwan07.Tube4Down.yml
+          cache-key: flatpak-builder-${{ github.sha }}
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Tube4Down-Flatpak-${{ steps.set_version.outputs.app_version }}
+          path: Tube4Down-${{ steps.set_version.outputs.app_version }}.flatpak
+
+      - name: Upload to GitHub Release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: Tube4Down-${{ steps.set_version.outputs.app_version }}.flatpak
