@@ -50,7 +50,7 @@ jobs:
           Copy-Item dist\Tube4Down.exe dist_zip\Tube4Down\
           Copy-Item assets dist_zip\Tube4Down\assets -Recurse
           Compress-Archive -Path dist_zip\Tube4Down\* `
-            -DestinationPath "dist_installer\Tube4Down-Portable-$env:APP_VERSION.zip"
+            -DestinationPath "dist_installer\Tube4Down-Windows-Portable-$env:APP_VERSION.zip"
 
       # Always upload as a workflow artifact
       - name: Upload build artifacts

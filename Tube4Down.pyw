@@ -33,7 +33,10 @@ def asset(relative_path):
 
 # location for dynamic data
 if sys.platform == "win32":
-    DATA_DIR = os.path.join(os.environ.get("LOCALAPPDATA", os.path.expanduser("~\\AppData\\Local")), "Tube4Down")
+    if getattr(sys, "frozen", False):  # running as a pyinstaller-built exe
+        DATA_DIR = os.path.join(os.environ.get("LOCALAPPDATA", os.path.expanduser("~\\AppData\\Local")), "Tube4Down")
+    else:  # running as a portable app
+        DATA_DIR = os.path.dirname(os.path.abspath(__file__))
 else:
     DATA_DIR = os.path.join(os.environ.get("XDG_DATA_HOME", os.path.expanduser("~/.local/share")), "Tube4Down")
 
@@ -62,6 +65,7 @@ class YTDownloader(Qt.QMainWindow):
             super().__init__()  # initialize the window
             self.setWindowTitle("Téléchargement")  # set the window title
             self.setWindowIcon(QtGui.QIcon(asset("icon.ico")))  # set the window icon
+            self.setWindowModality(QtCore.Qt.ApplicationModal)  # prevent interaction while downloading
             self.build_ui()
             log.debug("Init download progress window done")
             self.show()
@@ -132,6 +136,19 @@ class YTDownloader(Qt.QMainWindow):
         def converting(self):
             """update the download information when the file is being converted"""
             self.download_label.setText(f"Processing '{self.video_file_names[self.video_index]}'...")
+        
+        def closeEvent(self, event):
+            """handle closing the download window"""
+            reply = Qt.QMessageBox.question(self, "Cancel", "Do you want to cancel the download?",
+                                             Qt.QMessageBox.Yes | Qt.QMessageBox.No, Qt.QMessageBox.No)
+            if reply == Qt.QMessageBox.Yes:
+                # stop all downloads, clean the media cache and close the window
+                if hasattr(self, 'video') and self.video.isRunning():
+                    self.video.terminate()
+                for file in glob.glob("cache/media/*") + glob.glob("cache/videos/*") + glob.glob("cache/audios/*"):
+                    os.remove(file)
+            else:
+                event.ignore()
     
 
     class Downloader(QThread):
@@ -231,7 +248,7 @@ class YTDownloader(Qt.QMainWindow):
             """If needed, convert the file to the desired format, merge audio and video, and move it to the save path"""
             log.info(f"Starting conversion for video {self.video_id}")
             self.converting.emit()  # send the converting signal to the main thread
-            if os.name == "nt":  # windows
+            if sys.platform == "win32":  # windows
                 ffmpeg_path = "ffmpeg\\bin\\ffmpeg.exe"
             else:
                 ffmpeg_path = "ffmpeg/ffmpeg"
@@ -632,7 +649,7 @@ class YTDownloader(Qt.QMainWindow):
             log.info("Downloading ffmpeg binary")
             if not os.path.exists("ffmpeg/"):
                 os.makedirs("ffmpeg/")
-            if os.name == "nt":  # windows
+            if sys.platform == "win32":  # windows
                 url = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
                 archive_path = "ffmpeg/ffmpeg.zip"
             else:  # linux and mac
@@ -641,7 +658,7 @@ class YTDownloader(Qt.QMainWindow):
 
             self.download_file(url, archive_path)
 
-            if os.name == "nt":
+            if sys.platform == "win32":
                 self.extract_zip(archive_path)
             else:
                 self.extract_tar(archive_path)
@@ -1095,7 +1112,7 @@ if __name__ == "__main__":
     try:
         create_cache()
         log.debug("Created cache")
-        if os.name == "posix":
+        if sys.platform != "win32":
             os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = "--no-sandbox"  # set the environment variable for the web engine
             log.debug("Set flags for web engine")
         App = Qt.QApplication(sys.argv)  # creating the app
