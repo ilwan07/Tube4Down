@@ -305,10 +305,21 @@ class YTDownloader(Qt.QMainWindow):
                 self.file_name += "_"
             # rename and move the file to the final save path
             log.debug(f"Moving cached file {output} to its destination...")
+            destination = f"{self.save_path}/{self.file_name}.{self.format}"
             try:
-                shutil.move(output, f"{self.save_path}/{self.file_name}.{self.format}")
+                try:
+                    log.debug("Trying regulat rename to move")
+                    os.rename(output, destination)
+                except:
+                    try:
+                        log.debug("Rename failed, trying move")
+                        shutil.move(output, f"{self.save_path}/{self.file_name}.{self.format}")
+                    except:
+                        log.debug("Move failed, trying to copy then delete")
+                        shutil.copyfile(output, destination)
+                        os.remove(output)
             except Exception as e:
-                log.fatal(f"Error when moving processed media {self.video_id} from cache to final destination: {e}")
+                log.fatal(f"Error when moving processed media {self.video_id} from cache to {destination}: {e}")
                 raise e
             log.debug("Moved file successfully, end of its processing")
             self.finished.emit()  # send the finished signal to the main thread
