@@ -2,7 +2,7 @@ name: Build Windows Installer
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   release:
     types: [published]
 
@@ -25,9 +25,9 @@ jobs:
           pip install -r requirements.txt
 
       - name: Build with PyInstaller
-        run: pyinstaller build/tube4down.spec
+        run: pyinstaller winbuild/tube4down.spec
 
-      - name: Set version (release tag or dev build)
+      - name: Set version
         id: set_version
         shell: pwsh
         run: |
@@ -41,7 +41,7 @@ jobs:
 
       - name: Compile installer with Inno Setup
         run: |
-          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" build\installer.iss
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" winbuild\installer.iss
 
       - name: Build portable zip (standalone exe + assets)
         shell: pwsh
@@ -52,7 +52,7 @@ jobs:
           Compress-Archive -Path dist_zip\Tube4Down\* `
             -DestinationPath "dist_installer\Tube4Down-Portable-$env:APP_VERSION.zip"
 
-      # Always upload as a workflow artifact (lets you download & test builds from any push)
+      # Always upload as a workflow artifact
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -75,7 +75,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Set version (release tag or dev build)
+      - name: Set version
         id: set_version
         shell: bash
         run: |
@@ -87,6 +87,11 @@ jobs:
           fi
           echo "APP_VERSION=$version" >> "$GITHUB_ENV"
           echo "app_version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Inject version into metainfo.xml
+        run: |
+          sed -i "s/@VERSION@/${{ steps.set_version.outputs.app_version }}/" flatpak/io.github.ilwan07.Tube4Down.metainfo.xml
+          sed -i "s/@DATE@/$(date -u +%Y-%m-%d)/" flatpak/io.github.ilwan07.Tube4Down.metainfo.xml
 
       - name: Build Flatpak
         run: |

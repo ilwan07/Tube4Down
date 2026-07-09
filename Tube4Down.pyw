@@ -10,7 +10,6 @@ from bs4 import BeautifulSoup
 import threading as thr
 import requests
 import urllib
-import urllib.request
 import urllib.error
 import os
 import sys
@@ -22,8 +21,27 @@ import zipfile
 import tarfile
 import darkdetect
 
+# get script location for assets
+if getattr(sys, "frozen", False):  # running as a pyinstaller-built exe
+    SCRIPT_DIR = os.path.dirname(sys.executable)
+else:
+    SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+
+def asset(relative_path):
+    """Resolve a path inside the assets folder regardless of the current working directory"""
+    return os.path.join(SCRIPT_DIR, "assets", relative_path)
+
+# location for dynamic data
+if sys.platform == "win32":
+    DATA_DIR = os.path.join(os.environ.get("LOCALAPPDATA", os.path.expanduser("~\\AppData\\Local")), "Tube4Down")
+else:
+    DATA_DIR = os.path.join(os.environ.get("XDG_DATA_HOME", os.path.expanduser("~/.local/share")), "Tube4Down")
+
+os.makedirs(DATA_DIR, exist_ok=True)
+os.chdir(DATA_DIR)
 
 log.basicConfig(filename="latest.log", level=log.DEBUG, format="%(asctime)s - %(levelname)s - %(message)s")  # configure logging
+
 
 class YTDownloader(Qt.QMainWindow):
     """YouTube video downloader with GUI"""
@@ -43,7 +61,7 @@ class YTDownloader(Qt.QMainWindow):
             self.video_index = -1  # current video index starting at 0 (-1 for initialization)
             super().__init__()  # initialize the window
             self.setWindowTitle("Téléchargement")  # set the window title
-            self.setWindowIcon(QtGui.QIcon("assets/icon.ico"))  # set the window icon
+            self.setWindowIcon(QtGui.QIcon(asset("icon.ico")))  # set the window icon
             self.build_ui()
             log.debug("Init download progress window done")
             self.show()
@@ -284,7 +302,7 @@ class YTDownloader(Qt.QMainWindow):
                 self.channel_name = "Can't get video information"
                 self.channel_id = None
                 self.embed_url = "https://youtube.com"
-                self.channel_icon_path = "assets/no_internet.png"
+                self.channel_icon_path = asset("no_internet.png")
                 self.channel_url = "https://youtube.com"
                 self.channel_icon_pixmap = self.channel_icon_pixmap = None
 
@@ -307,7 +325,7 @@ class YTDownloader(Qt.QMainWindow):
             # creating the checkbox
             self.add_button = Qt.QPushButton()
             self.add_button.setFixedSize(30, self.preview_height)
-            self.add_button.setIcon(QtGui.QIcon("assets/add.png"))
+            self.add_button.setIcon(QtGui.QIcon(asset("add.png")))
             self.main_layout.addWidget(self.add_button)
 
             # creating the video preview
@@ -347,7 +365,7 @@ class YTDownloader(Qt.QMainWindow):
             
             # creating the channel icon
             self.channel_icon = Qt.QLabel()
-            self.channel_icon_pixmap = QtGui.QPixmap("assets/profile.png")
+            self.channel_icon_pixmap = QtGui.QPixmap(asset("profile.png"))
             self.channel_icon_pixmap = self.channel_icon_pixmap.scaled(self.channel_icon_size, self.channel_icon_size, QtCore.Qt.KeepAspectRatio)
             self.channel_icon.setPixmap(self.channel_icon_pixmap)
             self.channel_layout.addWidget(self.channel_icon)
@@ -387,7 +405,7 @@ class YTDownloader(Qt.QMainWindow):
             try:
                 self.download_channel_icon("cache/channel_icons")
             except requests.exceptions.ConnectionError:
-                self.channel_icon_path = "assets/no_internet.png"
+                self.channel_icon_path = asset("no_internet.png")
             self.channel_icon_pixmap = QtGui.QPixmap(self.channel_icon_path)
             self.channel_icon_pixmap = self.channel_icon_pixmap.scaled(self.channel_icon_size, self.channel_icon_size, QtCore.Qt.KeepAspectRatio)
             self.channel_icon.setPixmap(self.channel_icon_pixmap)
@@ -456,7 +474,7 @@ class YTDownloader(Qt.QMainWindow):
                 log.warning(f"Couldn't get info for video to download {self.video_id}")
                 self.video_title = "No internet"
                 self.channel_name = "Check your network connection"
-                self.thumbnail_path = "assets/no_internet.png"
+                self.thumbnail_path = asset("no_internet.png")
 
         def build_widget(self):
             super().__init__()
@@ -473,7 +491,7 @@ class YTDownloader(Qt.QMainWindow):
             # creating the checkbox
             self.remove_button = Qt.QPushButton()
             self.remove_button.setFixedSize(30, round(self.thumbnail_height*0.6))
-            self.remove_button.setIcon(QtGui.QIcon("assets/remove.png"))
+            self.remove_button.setIcon(QtGui.QIcon(asset("remove.png")))
             self.main_layout.addWidget(self.remove_button)
 
             # creating the thumbnail
@@ -557,7 +575,7 @@ class YTDownloader(Qt.QMainWindow):
         def __init__(self, parent=None):
             super().__init__(parent)
             self.setWindowTitle("Downloading ffmpeg")
-            self.setWindowIcon(QtGui.QIcon("assets/icon.ico"))
+            self.setWindowIcon(QtGui.QIcon(asset("icon.ico")))
             self.setModal(True)  # blocks interaction with the main window
             self.setFixedSize(420, 130)
             # remove the close (X) button so the user can't dismiss it manually
@@ -685,7 +703,7 @@ class YTDownloader(Qt.QMainWindow):
         log.debug("Starting downloader")
         super().__init__()  # initialize the UI module
         self.setWindowTitle("YouTube Downloader")  # set the window title
-        self.setWindowIcon(QtGui.QIcon("assets/download.png"))  # set the window icon
+        self.setWindowIcon(QtGui.QIcon(asset("download.png")))  # set the window icon
         self.build_ui()  # build the UI
         log.debug("Built app UI")
         self.setup_software()  # setup the UI, the events and the variables
@@ -761,7 +779,7 @@ class YTDownloader(Qt.QMainWindow):
 
         self.search_button = Qt.QPushButton()
         self.search_button.setFixedSize(50, 30)
-        self.search_button.setIcon(QtGui.QIcon("assets/search.png"))
+        self.search_button.setIcon(QtGui.QIcon(asset("search.png")))
         self.search_layout.addWidget(self.search_button)
 
         self.videos_scroll = Qt.QScrollArea()
@@ -884,7 +902,7 @@ class YTDownloader(Qt.QMainWindow):
 
         self.add_video_button = Qt.QPushButton()
         self.add_video_button.setFixedSize(30, 30)
-        self.add_video_button.setIcon(QtGui.QIcon("assets/add.png"))
+        self.add_video_button.setIcon(QtGui.QIcon(asset("add.png")))
         self.add_video_layout.addWidget(self.add_video_button)
 
         self.download_button = Qt.QPushButton("Download")

@@ -37,6 +37,4 @@ Filename: "{app}\{#MyAppExeName}"; Description: "Launch {#MyAppName}"; Flags: no
 
 ; Clean up the app's own runtime folders on uninstall (cache, ffmpeg binaries, etc.)
 [UninstallDelete]
-Type: filesandordirs; Name: "{app}\cache"
-Type: filesandordirs; Name: "{app}\ffmpeg"
-Type: filesandordirs; Name: "{app}\latest.log"
+Type: filesandordirs; Name: "{localappdata}\Tube4Down"

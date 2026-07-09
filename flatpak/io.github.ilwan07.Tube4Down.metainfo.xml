@@ -11,6 +11,6 @@
   <launchable type="desktop-id">io.github.ilwan07.Tube4Down.desktop</launchable>
   <content_rating type="oars-1.1"/>
   <releases>
-    <release version="0.2.0" date="2026-07-08"/>
+    <release version="@VERSION@" date="@DATE@"/>
   </releases>
 </component>

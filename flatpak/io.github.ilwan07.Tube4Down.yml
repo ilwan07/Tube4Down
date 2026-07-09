@@ -8,9 +8,12 @@ finish-args:
   - --socket=wayland
   - --socket=fallback-x11
   - --share=ipc
-  - --device=dri              # GPU accel for Qt rendering
-  - --share=network           # app downloads videos
-  - --filesystem=host         # lets the app save finished downloads anywhere
+  - --device=dri                 # GPU accel for Qt rendering
+  - --share=network              # app downloads videos
+  - --filesystem=host            # lets the app save finished downloads anywhere
+  - --talk-name=ca.desrt.dconf   # access dconf to get dark mode
+  - --filesystem=xdg-run/dconf
+  - --filesystem=~/.config/dconf:ro
 
 modules:
   - name: mit-krb5           # for PyQtWebEngine to work
@@ -42,13 +45,8 @@ modules:
       # main script + assets
       - install -Dm755 Tube4Down.pyw /app/bin/Tube4Down.pyw
       - cp -r assets /app/bin/assets
-      # launcher wrapper (see below)
+      # launcher wrapper
       - install -Dm755 flatpak/tube4down.sh /app/bin/tube4down
-      # workaround: cache/ffmpeg become symlinks into Flatpak's writable
-      # persistent storage, so the app's own mkdir("cache") etc. still works
-      # even though /app is read-only at runtime.
-      - ln -s /var/data/Tube4Down/cache /app/bin/cache
-      - ln -s /var/data/Tube4Down/ffmpeg /app/bin/ffmpeg
       # desktop integration
       - install -Dm644 flatpak/io.github.ilwan07.Tube4Down.desktop /app/share/applications/io.github.ilwan07.Tube4Down.desktop
       - install -Dm644 flatpak/io.github.ilwan07.Tube4Down.metainfo.xml /app/share/metainfo/io.github.ilwan07.Tube4Down.metainfo.xml
