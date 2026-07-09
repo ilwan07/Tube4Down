@@ -1,4 +1,4 @@
-name: Build Windows Installer
+name: Build App
 
 on:
   push:
@@ -25,7 +25,7 @@ jobs:
           pip install -r requirements.txt
 
       - name: Build with PyInstaller
-        run: pyinstaller winbuild/tube4down.spec
+        run: pyinstaller build/windows/tube4down.spec
 
       - name: Set version
         id: set_version
@@ -39,9 +39,14 @@ jobs:
           echo "APP_VERSION=$version" >> $env:GITHUB_ENV
           echo "app_version=$version" >> $env:GITHUB_OUTPUT
 
+      - name: Create .setup file
+        shell: pwsh
+        run: |
+          New-Item -ItemType File -Path ".setup" -Force | Out-Null
+
       - name: Compile installer with Inno Setup
         run: |
-          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" winbuild\installer.iss
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" build\windows\installer.iss
 
       - name: Build portable zip (standalone exe + assets)
         shell: pwsh
@@ -90,13 +95,13 @@ jobs:
 
       - name: Inject version into metainfo.xml
         run: |
-          sed -i "s/@VERSION@/${{ steps.set_version.outputs.app_version }}/" flatpak/io.github.ilwan07.Tube4Down.metainfo.xml
-          sed -i "s/@DATE@/$(date -u +%Y-%m-%d)/" flatpak/io.github.ilwan07.Tube4Down.metainfo.xml
+          sed -i "s/@VERSION@/${{ steps.set_version.outputs.app_version }}/" build/flatpak/io.github.ilwan07.Tube4Down.metainfo.xml
+          sed -i "s/@DATE@/$(date -u +%Y-%m-%d)/" build/flatpak/io.github.ilwan07.Tube4Down.metainfo.xml
 
       - name: Build Flatpak
         run: |
           flatpak-builder --disable-rofiles-fuse --force-clean \
-            --repo=repo build flatpak/io.github.ilwan07.Tube4Down.yml
+            --repo=repo tmpbuild build/flatpak/io.github.ilwan07.Tube4Down.yml
           flatpak build-bundle repo \
             "Tube4Down-${{ steps.set_version.outputs.app_version }}.flatpak" \
             io.github.ilwan07.Tube4Down

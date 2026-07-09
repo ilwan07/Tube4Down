@@ -1,7 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 
 a = Analysis(
-    ['../Tube4Down.pyw'],
+    ['../../Tube4Down.pyw'],
     pathex=[],
     binaries=[],
     datas=[],
@@ -28,5 +28,5 @@ exe = EXE(
     upx_exclude=[],
     runtime_tmpdir=None,
     console=False,
-    icon='../assets/icon.ico',
+    icon='../../assets/icon.ico',
 )

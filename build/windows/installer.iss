@@ -8,7 +8,7 @@ AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 DefaultDirName={autopf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
-OutputDir=..\dist_installer
+OutputDir=..\..\dist_installer
 OutputBaseFilename=Tube4Down-Windows-Setup-{#MyAppVersion}
 Compression=lzma2
 SolidCompression=yes
@@ -24,8 +24,10 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "Create a &desktop icon"; GroupDescription: "Additional icons:"
 
 [Files]
-Source: "..\dist\Tube4Down.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "..\assets\*"; DestDir: "{app}\assets"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\..\dist\Tube4Down.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\assets\*"; DestDir: "{app}\assets"; Flags: ignoreversion recursesubdirs createallsubdirs
+; Empty file to know it's a setup install, created from the workflow
+Source: "..\..\.setup"; DestDir: "{app}\.setup"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"

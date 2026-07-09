@@ -11,9 +11,6 @@ finish-args:
   - --device=dri                 # GPU accel for Qt rendering
   - --share=network              # app downloads videos
   - --filesystem=host            # lets the app save finished downloads anywhere
-  - --talk-name=ca.desrt.dconf   # access dconf to get dark mode
-  - --filesystem=xdg-run/dconf
-  - --filesystem=~/.config/dconf:ro
 
 modules:
   - name: mit-krb5           # for PyQtWebEngine to work
@@ -37,7 +34,7 @@ modules:
       - pip3 install --prefix=/app --no-cache-dir -r requirements.txt
     sources:
       - type: file
-        path: ../requirements.txt
+        path: ../../requirements.txt
 
   - name: tube4down
     buildsystem: simple
@@ -46,11 +43,11 @@ modules:
       - install -Dm755 Tube4Down.pyw /app/bin/Tube4Down.pyw
       - cp -r assets /app/bin/assets
       # launcher wrapper
-      - install -Dm755 flatpak/tube4down.sh /app/bin/tube4down
+      - install -Dm755 build/flatpak/tube4down.sh /app/bin/tube4down
       # desktop integration
-      - install -Dm644 flatpak/io.github.ilwan07.Tube4Down.desktop /app/share/applications/io.github.ilwan07.Tube4Down.desktop
-      - install -Dm644 flatpak/io.github.ilwan07.Tube4Down.metainfo.xml /app/share/metainfo/io.github.ilwan07.Tube4Down.metainfo.xml
+      - install -Dm644 build/flatpak/io.github.ilwan07.Tube4Down.desktop /app/share/applications/io.github.ilwan07.Tube4Down.desktop
+      - install -Dm644 build/flatpak/io.github.ilwan07.Tube4Down.metainfo.xml /app/share/metainfo/io.github.ilwan07.Tube4Down.metainfo.xml
       - install -Dm644 assets/icon.png /app/share/icons/hicolor/256x256/apps/io.github.ilwan07.Tube4Down.png
     sources:
       - type: dir
-        path: ../             # repo root relative to this manifest's location
+        path: ../../             # repo root relative to this manifest's location

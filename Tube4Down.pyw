@@ -12,6 +12,7 @@ import urllib
 import urllib.error
 import os
 import sys
+import shutil
 import glob
 import time
 import io
@@ -32,10 +33,11 @@ def asset(relative_path):
 
 # location for dynamic data
 if sys.platform == "win32":
-    if getattr(sys, "frozen", False):  # running as a pyinstaller-built exe
+    # running as an app installed with a setup (has a .setup empty file in the exe folder)
+    if os.path.exists(os.path.join(SCRIPT_DIR, ".setup")):
         DATA_DIR = os.path.join(os.environ.get("LOCALAPPDATA", os.path.expanduser("~\\AppData\\Local")), "Tube4Down")
     else:  # running as a portable app
-        DATA_DIR = os.path.dirname(os.path.abspath(__file__))
+        DATA_DIR = SCRIPT_DIR
 else:
     DATA_DIR = os.path.join(os.environ.get("XDG_DATA_HOME", os.path.expanduser("~/.local/share")), "Tube4Down")
 
@@ -148,8 +150,12 @@ class YTDownloader(Qt.QMainWindow):
                 # stop all downloads, clean the media cache and close the window
                 if hasattr(self, 'video') and self.video.isRunning():
                     self.video.terminate()
+                time.sleep(0.2)
                 for file in glob.glob("cache/media/*") + glob.glob("cache/videos/*") + glob.glob("cache/audios/*"):
-                    os.remove(file)
+                    try:
+                        os.remove(file)
+                    except Exception as e:
+                        log.warning(f"Can't delete cached file {file} after cancellation: {e}")
             else:
                 event.ignore()
     
@@ -255,23 +261,36 @@ class YTDownloader(Qt.QMainWindow):
                 ffmpeg_path = "ffmpeg\\bin\\ffmpeg.exe"
             else:
                 ffmpeg_path = "ffmpeg/ffmpeg"
+            log.debug(f"Using ffmpeg path {os.path.abspath(ffmpeg_path)}")
+            if not os.path.exists(ffmpeg_path):
+                log.error("ffmpeg binary not found, this won't go well...")
             if self.type == "video":
                 # convert the video to the desired format
                 if self.video_instance_file_type != self.format:
+                    log.debug("Running ffmpeg on video stream...")
                     os.system(f"{ffmpeg_path} -i cache/videos/{self.video_id}.{self.video_instance_file_type} cache/videos/{self.video_id}.{self.format}")
+                    log.debug("ffmpeg ran successfully on video")
                     os.remove(f"cache/videos/{self.video_id}.{self.video_instance_file_type}")
+                    log.debug("Removed video from cache")
             if self.type == "audio" or self.has_audio:
                 # convert the audio to the desired format
                 if self.audio_instance_file_type != self.format:
+                    log.debug("Running ffmpeg on audio stream...")
                     os.system(f"{ffmpeg_path} -i cache/audios/{self.video_id}.{self.audio_instance_file_type} cache/audios/{self.video_id}.{self.format}")
+                    log.debug("ffmpeg ran successfully on audio")
                     os.remove(f"cache/audios/{self.video_id}.{self.audio_instance_file_type}")
+                    log.debug("Removed audio from cache")
             
             if self.has_audio:
                 # merge the audio and video
+                log.debug("Running ffmpeg to merge audio and video")
                 os.system(f"{ffmpeg_path} -i cache/videos/{self.video_id}.{self.format} -i cache/audios/{self.video_id}.{self.format} -c copy cache/media/{self.video_id}.{self.format}")
+                log.debug("ffmpeg ran successfully on audio/video merging")
                 os.remove(f"cache/videos/{self.video_id}.{self.format}")
                 os.remove(f"cache/audios/{self.video_id}.{self.format}")
+                log.debug("Removed audio and video from cache")
             
+            log.info(f"Successfully processed video {self.video_id} with ffmpeg")
             # get the cache path of the file to move
             cache_file_name = f"{self.video_id}.{self.format}"
             if self.type == "audio":
@@ -285,7 +304,13 @@ class YTDownloader(Qt.QMainWindow):
             while os.path.exists(f"{self.save_path}/{self.file_name}.{self.format}"):
                 self.file_name += "_"
             # rename and move the file to the final save path
-            os.rename(output, f"{self.save_path}/{self.file_name}.{self.format}")
+            log.debug(f"Moving cached file {output} to its destination...")
+            try:
+                shutil.move(output, f"{self.save_path}/{self.file_name}.{self.format}")
+            except Exception as e:
+                log.fatal(f"Error when moving processed media {self.video_id} from cache to final destination: {e}")
+                raise e
+            log.debug("Moved file successfully, end of its processing")
             self.finished.emit()  # send the finished signal to the main thread
     
     
@@ -1101,8 +1126,10 @@ def clear_cache():
     """clears the cache folder"""
     cache = glob.glob("cache/*.*") + glob.glob("cache/*/*.*")
     for f in cache:
-        try: os.remove(f)
-        except: pass
+        try:
+            os.remove(f)
+        except Exception as e:
+            log.error(f"Can't remove cached file {f}: {e}")
 
 def create_cache():
     """creates the cache folder if it doesn't exist"""
