@@ -4,7 +4,6 @@ from PyQt5 import QtCore
 from PyQt5 import QtGui
 import PyQt5.QtWebEngineWidgets as QtWeb
 from PyQt5.QtCore import QThread, pyqtSignal
-from tkinter import filedialog
 from PIL import Image
 from bs4 import BeautifulSoup
 import threading as thr
@@ -19,7 +18,7 @@ import io
 import logging as log
 import zipfile
 import tarfile
-import darkdetect
+
 
 # get script location for assets
 if getattr(sys, "frozen", False):  # running as a pyinstaller-built exe
@@ -139,6 +138,10 @@ class YTDownloader(Qt.QMainWindow):
         
         def closeEvent(self, event):
             """handle closing the download window"""
+            # just close if download is done
+            if self.video_index >= len(self.to_download):
+                event.accept()
+                return
             reply = Qt.QMessageBox.question(self, "Cancel", "Do you want to cancel the download?",
                                              Qt.QMessageBox.Yes | Qt.QMessageBox.No, Qt.QMessageBox.No)
             if reply == Qt.QMessageBox.Yes:
@@ -945,7 +948,8 @@ class YTDownloader(Qt.QMainWindow):
         """downloads the selected videos with the selected settings after asking for the save folder"""
         if not self.selected_videos:
             return
-        self.save_path = filedialog.askdirectory(initialdir=f"{os.path.expanduser("~")}/Downloads")  # ask for the save folder
+        downloads_default = os.path.join(os.path.expanduser("~"), "Downloads")
+        self.save_path = Qt.QFileDialog.getExistingDirectory(self, "Select download location", downloads_default)  # ask for the save folder
         if not self.save_path:
             return
         
@@ -1117,23 +1121,22 @@ if __name__ == "__main__":
             log.debug("Set flags for web engine")
         App = Qt.QApplication(sys.argv)  # creating the app
         App.setStyle("fusion")
-        if darkdetect.isDark():
-            # dark mode palette
-            palette = QtGui.QPalette()
-            palette.setColor(QtGui.QPalette.Window, QtGui.QColor(53, 53, 53))
-            palette.setColor(QtGui.QPalette.WindowText, QtCore.Qt.white)
-            palette.setColor(QtGui.QPalette.Base, QtGui.QColor(25, 25, 25))
-            palette.setColor(QtGui.QPalette.AlternateBase, QtGui.QColor(53, 53, 53))
-            palette.setColor(QtGui.QPalette.ToolTipBase, QtCore.Qt.black)
-            palette.setColor(QtGui.QPalette.ToolTipText, QtCore.Qt.white)
-            palette.setColor(QtGui.QPalette.Text, QtCore.Qt.white)
-            palette.setColor(QtGui.QPalette.Button, QtGui.QColor(53, 53, 53))
-            palette.setColor(QtGui.QPalette.ButtonText, QtCore.Qt.white)
-            palette.setColor(QtGui.QPalette.BrightText, QtCore.Qt.red)
-            palette.setColor(QtGui.QPalette.Link, QtGui.QColor(42, 130, 218))
-            palette.setColor(QtGui.QPalette.Highlight, QtGui.QColor(42, 130, 218))
-            palette.setColor(QtGui.QPalette.HighlightedText, QtCore.Qt.black)
-            App.setPalette(palette)
+        # dark mode palette
+        palette = QtGui.QPalette()
+        palette.setColor(QtGui.QPalette.Window, QtGui.QColor(53, 53, 53))
+        palette.setColor(QtGui.QPalette.WindowText, QtCore.Qt.white)
+        palette.setColor(QtGui.QPalette.Base, QtGui.QColor(25, 25, 25))
+        palette.setColor(QtGui.QPalette.AlternateBase, QtGui.QColor(53, 53, 53))
+        palette.setColor(QtGui.QPalette.ToolTipBase, QtCore.Qt.black)
+        palette.setColor(QtGui.QPalette.ToolTipText, QtCore.Qt.white)
+        palette.setColor(QtGui.QPalette.Text, QtCore.Qt.white)
+        palette.setColor(QtGui.QPalette.Button, QtGui.QColor(53, 53, 53))
+        palette.setColor(QtGui.QPalette.ButtonText, QtCore.Qt.white)
+        palette.setColor(QtGui.QPalette.BrightText, QtCore.Qt.red)
+        palette.setColor(QtGui.QPalette.Link, QtGui.QColor(42, 130, 218))
+        palette.setColor(QtGui.QPalette.Highlight, QtGui.QColor(42, 130, 218))
+        palette.setColor(QtGui.QPalette.HighlightedText, QtCore.Qt.black)
+        App.setPalette(palette)
         Window = YTDownloader()  # creating the GUI
         Window.start()  # starting the GUI
         log.info("Starting the app")
