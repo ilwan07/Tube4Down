@@ -6,6 +6,8 @@ import PyQt5.QtWebEngineWidgets as QtWeb
 from PyQt5.QtCore import QThread, pyqtSignal
 from PIL import Image
 from bs4 import BeautifulSoup
+from logging.handlers import RotatingFileHandler
+import logging as log
 import threading as thr
 import requests
 import urllib
@@ -16,9 +18,10 @@ import shutil
 import glob
 import time
 import io
-import logging as log
 import zipfile
 import tarfile
+import darkdetect
+import subprocess
 
 
 # get script location for assets
@@ -29,7 +32,10 @@ else:
 
 def asset(relative_path):
     """Resolve a path inside the assets folder regardless of the current working directory"""
-    return os.path.join(SCRIPT_DIR, "assets", relative_path)
+    if darkdetect.isDark():
+        return os.path.join(SCRIPT_DIR, "assets", "dark", relative_path)
+    else:
+        return os.path.join(SCRIPT_DIR, "assets", "light", relative_path)
 
 # location for dynamic data
 if sys.platform == "win32":
@@ -44,7 +50,9 @@ else:
 os.makedirs(DATA_DIR, exist_ok=True)
 os.chdir(DATA_DIR)
 
-log.basicConfig(filename="latest.log", level=log.DEBUG, format="%(asctime)s - %(levelname)s - %(message)s")  # configure logging
+handler = RotatingFileHandler("latest.log", maxBytes=1048576, backupCount=0)  # 1MiB limit
+handler.setFormatter(log.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
+log.basicConfig(level=log.DEBUG, handlers=[handler])  # configure logging
 
 
 class YTDownloader(Qt.QMainWindow):
@@ -268,7 +276,7 @@ class YTDownloader(Qt.QMainWindow):
                 # convert the video to the desired format
                 if self.video_instance_file_type != self.format:
                     log.debug("Running ffmpeg on video stream...")
-                    os.system(f"{ffmpeg_path} -i cache/videos/{self.video_id}.{self.video_instance_file_type} cache/videos/{self.video_id}.{self.format}")
+                    subprocess.run([ffmpeg_path, "-i", f"cache/videos/{self.video_id}.{self.video_instance_file_type}", f"cache/videos/{self.video_id}.{self.format}"])
                     log.debug("ffmpeg ran successfully on video")
                     os.remove(f"cache/videos/{self.video_id}.{self.video_instance_file_type}")
                     log.debug("Removed video from cache")
@@ -276,7 +284,7 @@ class YTDownloader(Qt.QMainWindow):
                 # convert the audio to the desired format
                 if self.audio_instance_file_type != self.format:
                     log.debug("Running ffmpeg on audio stream...")
-                    os.system(f"{ffmpeg_path} -i cache/audios/{self.video_id}.{self.audio_instance_file_type} cache/audios/{self.video_id}.{self.format}")
+                    subprocess.run([ffmpeg_path, "-i", f"cache/audios/{self.video_id}.{self.audio_instance_file_type}", f"cache/audios/{self.video_id}.{self.format}"])
                     log.debug("ffmpeg ran successfully on audio")
                     os.remove(f"cache/audios/{self.video_id}.{self.audio_instance_file_type}")
                     log.debug("Removed audio from cache")
@@ -284,7 +292,7 @@ class YTDownloader(Qt.QMainWindow):
             if self.has_audio:
                 # merge the audio and video
                 log.debug("Running ffmpeg to merge audio and video")
-                os.system(f"{ffmpeg_path} -i cache/videos/{self.video_id}.{self.format} -i cache/audios/{self.video_id}.{self.format} -c copy cache/media/{self.video_id}.{self.format}")
+                subprocess.run([ffmpeg_path, "-i", f"cache/videos/{self.video_id}.{self.format}", "-i", f"cache/audios/{self.video_id}.{self.format}", "-c", "copy", f"cache/media/{self.video_id}.{self.format}"])
                 log.debug("ffmpeg ran successfully on audio/video merging")
                 os.remove(f"cache/videos/{self.video_id}.{self.format}")
                 os.remove(f"cache/audios/{self.video_id}.{self.format}")
@@ -308,16 +316,12 @@ class YTDownloader(Qt.QMainWindow):
             destination = f"{self.save_path}/{self.file_name}.{self.format}"
             try:
                 try:
-                    log.debug("Trying regulat rename to move")
+                    log.debug("Trying regular rename to move")
                     os.rename(output, destination)
                 except:
-                    try:
-                        log.debug("Rename failed, trying move")
-                        shutil.move(output, f"{self.save_path}/{self.file_name}.{self.format}")
-                    except:
-                        log.debug("Move failed, trying to copy then delete")
-                        shutil.copyfile(output, destination)
-                        os.remove(output)
+                    log.debug("Rename failed, trying to move manually")
+                    shutil.copyfile(output, destination)
+                    os.remove(output)
             except Exception as e:
                 log.fatal(f"Error when moving processed media {self.video_id} from cache to {destination}: {e}")
                 raise e
@@ -759,7 +763,7 @@ class YTDownloader(Qt.QMainWindow):
         log.debug("Starting downloader")
         super().__init__()  # initialize the UI module
         self.setWindowTitle("YouTube Downloader")  # set the window title
-        self.setWindowIcon(QtGui.QIcon(asset("download.png")))  # set the window icon
+        self.setWindowIcon(QtGui.QIcon(asset("icon.ico")))  # set the window icon
         self.build_ui()  # build the UI
         log.debug("Built app UI")
         self.setup_software()  # setup the UI, the events and the variables
@@ -1151,6 +1155,7 @@ def create_cache():
             os.makedirs(f"cache/{folder}")
 
 if __name__ == "__main__":
+    log.info("Starting the app")
     try:
         create_cache()
         log.debug("Created cache")
@@ -1159,25 +1164,26 @@ if __name__ == "__main__":
             log.debug("Set flags for web engine")
         App = Qt.QApplication(sys.argv)  # creating the app
         App.setStyle("fusion")
-        # dark mode palette
-        palette = QtGui.QPalette()
-        palette.setColor(QtGui.QPalette.Window, QtGui.QColor(53, 53, 53))
-        palette.setColor(QtGui.QPalette.WindowText, QtCore.Qt.white)
-        palette.setColor(QtGui.QPalette.Base, QtGui.QColor(25, 25, 25))
-        palette.setColor(QtGui.QPalette.AlternateBase, QtGui.QColor(53, 53, 53))
-        palette.setColor(QtGui.QPalette.ToolTipBase, QtCore.Qt.black)
-        palette.setColor(QtGui.QPalette.ToolTipText, QtCore.Qt.white)
-        palette.setColor(QtGui.QPalette.Text, QtCore.Qt.white)
-        palette.setColor(QtGui.QPalette.Button, QtGui.QColor(53, 53, 53))
-        palette.setColor(QtGui.QPalette.ButtonText, QtCore.Qt.white)
-        palette.setColor(QtGui.QPalette.BrightText, QtCore.Qt.red)
-        palette.setColor(QtGui.QPalette.Link, QtGui.QColor(42, 130, 218))
-        palette.setColor(QtGui.QPalette.Highlight, QtGui.QColor(42, 130, 218))
-        palette.setColor(QtGui.QPalette.HighlightedText, QtCore.Qt.black)
+        if darkdetect.isDark():
+            # dark mode palette
+            palette = QtGui.QPalette()
+            palette.setColor(QtGui.QPalette.Window, QtGui.QColor(53, 53, 53))
+            palette.setColor(QtGui.QPalette.WindowText, QtCore.Qt.white)
+            palette.setColor(QtGui.QPalette.Base, QtGui.QColor(25, 25, 25))
+            palette.setColor(QtGui.QPalette.AlternateBase, QtGui.QColor(53, 53, 53))
+            palette.setColor(QtGui.QPalette.ToolTipBase, QtCore.Qt.black)
+            palette.setColor(QtGui.QPalette.ToolTipText, QtCore.Qt.white)
+            palette.setColor(QtGui.QPalette.Text, QtCore.Qt.white)
+            palette.setColor(QtGui.QPalette.Button, QtGui.QColor(53, 53, 53))
+            palette.setColor(QtGui.QPalette.ButtonText, QtCore.Qt.white)
+            palette.setColor(QtGui.QPalette.BrightText, QtCore.Qt.red)
+            palette.setColor(QtGui.QPalette.Link, QtGui.QColor(42, 130, 218))
+            palette.setColor(QtGui.QPalette.Highlight, QtGui.QColor(42, 130, 218))
+            palette.setColor(QtGui.QPalette.HighlightedText, QtCore.Qt.black)
         App.setPalette(palette)
         Window = YTDownloader()  # creating the GUI
         Window.start()  # starting the GUI
-        log.info("Starting the app")
+        log.info("Starting the window")
         App.exec_()  # executing the app
     except Exception as e:
         log.fatal(f"An error occurred: {e}")
@@ -1185,4 +1191,4 @@ if __name__ == "__main__":
         # always clear cache
         clear_cache()
         log.info("Cleared cache")
-        log.info("Exiting the app")
+        log.info("Exiting the app\n")
