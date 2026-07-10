@@ -326,7 +326,7 @@ class YTDownloader(Qt.QMainWindow):
                     shutil.copyfile(output, destination)
                     os.remove(output)
             except Exception as e:
-                log.fatal(f"Error when moving processed media {self.video_id} from cache to {destination}: {e}\n")
+                log.critical(f"Error when moving processed media {self.video_id} from cache to {destination}: {e}\n")
                 raise e
             log.debug("Moved file successfully, end of its processing")
             self.finished.emit()  # send the finished signal to the main thread
@@ -1183,13 +1183,13 @@ if __name__ == "__main__":
             palette.setColor(QtGui.QPalette.Link, QtGui.QColor(42, 130, 218))
             palette.setColor(QtGui.QPalette.Highlight, QtGui.QColor(42, 130, 218))
             palette.setColor(QtGui.QPalette.HighlightedText, QtCore.Qt.black)
-        App.setPalette(palette)
+            App.setPalette(palette)
         Window = YTDownloader()  # creating the GUI
         Window.start()  # starting the GUI
         log.info("Starting the window")
         App.exec_()  # executing the app
     except Exception as e:
-        log.fatal(f"An error occurred: {e}\n")
+        log.critical(f"An error occurred: {e}")
     finally:
         # always clear cache
         clear_cache()
