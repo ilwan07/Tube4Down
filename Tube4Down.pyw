@@ -22,6 +22,34 @@ import zipfile
 import tarfile
 import darkdetect
 import subprocess
+import re
+
+
+if sys.platform != "win32":  # fix dark mode detection
+    import subprocess
+    import re
+
+    def _portal_theme():
+        """query xdg desktop portal for system color scheme"""
+        try:
+            result = subprocess.run(
+                ["gdbus", "call", "--session",
+                 "--dest", "org.freedesktop.portal.Desktop",
+                 "--object-path", "/org/freedesktop/portal/desktop",
+                 "--method", "org.freedesktop.portal.Settings.Read",
+                 "org.freedesktop.appearance", "color-scheme"],
+                capture_output=True, text=True, timeout=2,
+            )
+            match = re.search(r"uint32 (\d)", result.stdout)
+            if match:
+                return "Dark" if int(match.group(1)) == 1 else "Light"
+        except Exception:
+            pass
+        return "Light"
+
+    darkdetect.theme = _portal_theme
+    darkdetect.isDark = lambda: _portal_theme() == "Dark"
+    darkdetect.isLight = lambda: _portal_theme() == "Light"
 
 
 # get script location for assets

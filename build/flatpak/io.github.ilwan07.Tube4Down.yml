@@ -11,21 +11,8 @@ finish-args:
   - --device=dri                 # GPU accel for Qt rendering
   - --share=network              # app downloads videos
   - --filesystem=host            # lets the app save finished downloads anywhere
-  - --talk-name=ca.desrt.dconf   # dconf access
-  - --filesystem=xdg-run/dconf
-  - --filesystem=~/.config/dconf:ro
 
 modules:
-  - name: gsettings-desktop-schemas  # makes host dconf access work
-    buildsystem: meson
-    config-opts:
-      - -Dintrospection=false   # skip building GObject introspection typelibs, not needed here
-    sources:
-      - type: archive
-        url: https://codeload.github.com/GNOME/gsettings-desktop-schemas/tar.gz/refs/tags/50.1
-        sha256: ac9328c00ca18e5ac921bb2c13048b1ce5b43302b0c8d89d7fec22b05e22ec7a
-        dest-filename: gsettings-desktop-schemas-50.1.tar.gz
-
   - name: mit-krb5           # for PyQtWebEngine to work
     buildsystem: simple
     sources:
