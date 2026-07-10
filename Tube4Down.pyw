@@ -121,7 +121,7 @@ class YTDownloader(Qt.QMainWindow):
                 Qt.QMessageBox.information(self, "Done", "Downloaded all videos successfully.")
                 self.close()
                 return
-            log.info(f"Starting download for video: {self.video_ids[self.video_index]}")
+            log.info(f"Initializing download for video: {self.video_ids[self.video_index]}")
             video_id = self.video_ids[self.video_index]
             file_name = self.video_file_names[self.video_index]
             self.file_number_label.setText(str(self.video_index+1))
@@ -131,16 +131,16 @@ class YTDownloader(Qt.QMainWindow):
             self.file_size = self.video.total_size
             self.bytes_total_label.setText(f"/ {YTDownloader.standard_size(self, self.file_size)}")
             self.download_label.setText(f"Downloading '{file_name}'...")
-            self.progress_bar.setMaximum(self.file_size)
+            self.progress_bar.setMaximum(100)
             self.video.progress.connect(self.update_infos)
             self.video.converting.connect(self.converting)
             self.video.finished.connect(self.download)
             self.video.start()
 
-        def update_infos(self, remaining:int):
+        def update_infos(self, downloaded:int):
             """update the download information such as the progress and the downloaded size in bytes"""
-            self.progress_bar.setValue(self.file_size - remaining)
-            self.bytes_progress_label.setText(YTDownloader.standard_size(self, self.file_size - remaining))
+            self.progress_bar.setValue(round(((downloaded)/self.file_size)*100))
+            self.bytes_progress_label.setText(YTDownloader.standard_size(self, downloaded))
 
         def converting(self):
             """update the download information when the file is being converted"""
@@ -170,7 +170,7 @@ class YTDownloader(Qt.QMainWindow):
 
     class Downloader(QThread):
         """Class containing all the needed functions to download a video or audio with the desired settings"""
-        progress = pyqtSignal(int)  # signal to send the download progress in remaining bytes
+        progress = pyqtSignal("qint64")  # signal to send the download progress in remaining bytes (64 bits to handle large sizes)
         converting = pyqtSignal()  # signal to send when the file is being converted
         finished = pyqtSignal()  # signal to send when the download is finished
 
@@ -181,6 +181,7 @@ class YTDownloader(Qt.QMainWindow):
             self.type = media_type
             self.settings = settings
             self.total_size = 0  # total file size in bytes
+            self.downloaded_bytes = 0  # downloaded bytes so far
             self.found_stream = False  # is the correct stream found yet
 
             self.qualities = ["2160p", "1440p", "1080p", "720p", "480p", "360p", "240p", "144p"]
@@ -210,7 +211,9 @@ class YTDownloader(Qt.QMainWindow):
             self.download()
         
         def emit_progress(self, stream, data_block, remaining_bytes):
-            self.progress.emit(remaining_bytes)
+            """emits the total downloaded bytes"""
+            self.downloaded_bytes += len(data_block)
+            self.progress.emit(self.downloaded_bytes)
         
         def download(self):
             """Download the video or audio with the desired settings"""
@@ -251,7 +254,7 @@ class YTDownloader(Qt.QMainWindow):
                 self.audio_instance_file_type = self.audio_instance.mime_type.split("/")[1]
                 self.total_size += self.audio_instance.filesize
             self.found_stream = True
-            log.debug(f"Got best stream for video {self.video_id}")
+            log.debug(f"Got best stream for video {self.video_id}: {self.used_quality}")
         
         def download_base_files(self):
             """Download the files (video and/or audio) with the default format in the cache (webp/mp4 for both video and audio)"""
@@ -272,7 +275,7 @@ class YTDownloader(Qt.QMainWindow):
             log.debug(f"Using ffmpeg path {os.path.abspath(ffmpeg_path)}")
             if not os.path.exists(ffmpeg_path):
                 log.error("ffmpeg binary not found, this won't go well...")
-            if self.type == "video":
+            if self.type == "video" and not self.has_audio:  # only video
                 # convert the video to the desired format
                 if self.video_instance_file_type != self.format:
                     log.debug("Running ffmpeg on video stream...")
@@ -280,7 +283,7 @@ class YTDownloader(Qt.QMainWindow):
                     log.debug("ffmpeg ran successfully on video")
                     os.remove(f"cache/videos/{self.video_id}.{self.video_instance_file_type}")
                     log.debug("Removed video from cache")
-            if self.type == "audio" or self.has_audio:
+            elif self.type == "audio":  # only audio
                 # convert the audio to the desired format
                 if self.audio_instance_file_type != self.format:
                     log.debug("Running ffmpeg on audio stream...")
@@ -289,13 +292,13 @@ class YTDownloader(Qt.QMainWindow):
                     os.remove(f"cache/audios/{self.video_id}.{self.audio_instance_file_type}")
                     log.debug("Removed audio from cache")
             
-            if self.has_audio:
+            else:  # video + audio
                 # merge the audio and video
-                log.debug("Running ffmpeg to merge audio and video")
-                subprocess.run([ffmpeg_path, "-i", f"cache/videos/{self.video_id}.{self.format}", "-i", f"cache/audios/{self.video_id}.{self.format}", "-c", "copy", f"cache/media/{self.video_id}.{self.format}"])
+                log.debug("Running ffmpeg to merge audio and video streams")
+                subprocess.run([ffmpeg_path, "-i", f"cache/videos/{self.video_id}.{self.video_instance_file_type}", "-i", f"cache/audios/{self.video_id}.{self.audio_instance_file_type}", "-c", "copy", f"cache/media/{self.video_id}.{self.format}"])
                 log.debug("ffmpeg ran successfully on audio/video merging")
-                os.remove(f"cache/videos/{self.video_id}.{self.format}")
-                os.remove(f"cache/audios/{self.video_id}.{self.format}")
+                os.remove(f"cache/videos/{self.video_id}.{self.video_instance_file_type}")
+                os.remove(f"cache/audios/{self.video_id}.{self.audio_instance_file_type}")
                 log.debug("Removed audio and video from cache")
             
             log.info(f"Successfully processed video {self.video_id} with ffmpeg")
@@ -323,7 +326,7 @@ class YTDownloader(Qt.QMainWindow):
                     shutil.copyfile(output, destination)
                     os.remove(output)
             except Exception as e:
-                log.fatal(f"Error when moving processed media {self.video_id} from cache to {destination}: {e}")
+                log.fatal(f"Error when moving processed media {self.video_id} from cache to {destination}: {e}\n")
                 raise e
             log.debug("Moved file successfully, end of its processing")
             self.finished.emit()  # send the finished signal to the main thread
@@ -675,7 +678,7 @@ class YTDownloader(Qt.QMainWindow):
 
     class FfmpegDownloadThread(QThread):
         """Downloads and extracts the ffmpeg binary in the background so the UI thread never blocks"""
-        progress = pyqtSignal(int, int)  # downloaded bytes, total bytes
+        progress = pyqtSignal("qint64", "qint64")  # downloaded bytes, total bytes (64 bit integers)
         finished = pyqtSignal()
         error = pyqtSignal(str)
 
@@ -1186,7 +1189,7 @@ if __name__ == "__main__":
         log.info("Starting the window")
         App.exec_()  # executing the app
     except Exception as e:
-        log.fatal(f"An error occurred: {e}")
+        log.fatal(f"An error occurred: {e}\n")
     finally:
         # always clear cache
         clear_cache()
