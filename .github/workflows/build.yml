@@ -120,3 +120,67 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: Tube4Down-${{ steps.set_version.outputs.app_version }}.flatpak
+
+  build-appimage:
+    runs-on: ubuntu-22.04   # older base for broader glibc compatibility for the resulting AppImage
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller
+          pip install -r requirements.txt
+
+      - name: Build with PyInstaller
+        run: pyinstaller build/appimage/tube4down.spec
+
+      - name: Set version
+        id: set_version
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            version="${{ github.event.release.tag_name }}"
+            version="${version#v}"
+          else
+            version="0.0.0-dev.$(echo ${{ github.sha }} | cut -c1-7)"
+          fi
+          echo "APP_VERSION=$version" >> "$GITHUB_ENV"
+          echo "app_version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Assemble AppDir
+        run: |
+          mkdir -p AppDir/usr/bin
+          cp dist/Tube4Down AppDir/usr/bin/Tube4Down
+          cp -r assets AppDir/usr/bin/assets
+          install -Dm755 build/appimage/AppRun AppDir/AppRun
+          install -Dm644 build/appimage/io.github.ilwan07.Tube4Down.desktop AppDir/io.github.ilwan07.Tube4Down.desktop
+          install -Dm644 assets/icon.png AppDir/io.github.ilwan07.Tube4Down.png
+
+      - name: Download appimagetool
+        run: |
+          curl -Lo appimagetool https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x appimagetool
+
+      - name: Build AppImage
+        run: |
+          ARCH=x86_64 VERSION=${{ steps.set_version.outputs.app_version }} \
+            ./appimagetool --appimage-extract-and-run -n AppDir \
+            "Tube4Down-${{ steps.set_version.outputs.app_version }}-x86_64.AppImage"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Tube4Down-AppImage-${{ steps.set_version.outputs.app_version }}
+          path: Tube4Down-${{ steps.set_version.outputs.app_version }}-x86_64.AppImage
+
+      - name: Upload to GitHub Release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: Tube4Down-${{ steps.set_version.outputs.app_version }}-x86_64.AppImage

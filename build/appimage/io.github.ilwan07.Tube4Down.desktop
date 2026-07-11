@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Tube4Down
+Comment=YouTube video downloader
+Exec=Tube4Down
+Icon=io.github.ilwan07.Tube4Down
+Categories=AudioVideo;Network;Utility;
+Terminal=false

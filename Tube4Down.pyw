@@ -25,6 +25,18 @@ import subprocess
 import re
 
 
+def clean_subprocess_env():
+    """environment to use for any spawned subprocess"""
+    env = os.environ.copy()
+    if getattr(sys, "frozen", False):
+        lp_orig = env.get("LD_LIBRARY_PATH_ORIG")
+        if lp_orig is not None:
+            env["LD_LIBRARY_PATH"] = lp_orig
+        else:
+            env.pop("LD_LIBRARY_PATH", None)
+    return env
+
+
 if sys.platform != "win32":  # fix dark mode detection
     import subprocess
     import re
@@ -39,6 +51,7 @@ if sys.platform != "win32":  # fix dark mode detection
                  "--method", "org.freedesktop.portal.Settings.Read",
                  "org.freedesktop.appearance", "color-scheme"],
                 capture_output=True, text=True, timeout=2,
+                env=clean_subprocess_env(),
             )
             match = re.search(r"uint32 (\d)", result.stdout)
             if match:
@@ -77,6 +90,13 @@ else:
 
 os.makedirs(DATA_DIR, exist_ok=True)
 os.chdir(DATA_DIR)
+
+# properly locate system CA certificate
+if getattr(sys, "frozen", False):
+    cert_path = os.path.join(getattr(sys, "_MEIPASS", SCRIPT_DIR), "certifi", "cacert.pem")
+    if os.path.isfile(cert_path):
+        os.environ["SSL_CERT_FILE"] = cert_path
+        os.environ["REQUESTS_CA_BUNDLE"] = cert_path
 
 handler = RotatingFileHandler("latest.log", maxBytes=1048576, backupCount=0)  # 1MiB limit
 handler.setFormatter(log.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
@@ -307,7 +327,7 @@ class YTDownloader(Qt.QMainWindow):
                 # convert the video to the desired format
                 if self.video_instance_file_type != self.format:
                     log.debug("Running ffmpeg on video stream...")
-                    subprocess.run([ffmpeg_path, "-i", f"cache/videos/{self.video_id}.{self.video_instance_file_type}", f"cache/videos/{self.video_id}.{self.format}"])
+                    subprocess.run([ffmpeg_path, "-i", f"cache/videos/{self.video_id}.{self.video_instance_file_type}", f"cache/videos/{self.video_id}.{self.format}"], env=clean_subprocess_env())
                     log.debug("ffmpeg ran successfully on video")
                     os.remove(f"cache/videos/{self.video_id}.{self.video_instance_file_type}")
                     log.debug("Removed video from cache")
@@ -315,7 +335,7 @@ class YTDownloader(Qt.QMainWindow):
                 # convert the audio to the desired format
                 if self.audio_instance_file_type != self.format:
                     log.debug("Running ffmpeg on audio stream...")
-                    subprocess.run([ffmpeg_path, "-i", f"cache/audios/{self.video_id}.{self.audio_instance_file_type}", f"cache/audios/{self.video_id}.{self.format}"])
+                    subprocess.run([ffmpeg_path, "-i", f"cache/audios/{self.video_id}.{self.audio_instance_file_type}", f"cache/audios/{self.video_id}.{self.format}"], env=clean_subprocess_env())
                     log.debug("ffmpeg ran successfully on audio")
                     os.remove(f"cache/audios/{self.video_id}.{self.audio_instance_file_type}")
                     log.debug("Removed audio from cache")
@@ -323,7 +343,7 @@ class YTDownloader(Qt.QMainWindow):
             else:  # video + audio
                 # merge the audio and video
                 log.debug("Running ffmpeg to merge audio and video streams")
-                subprocess.run([ffmpeg_path, "-i", f"cache/videos/{self.video_id}.{self.video_instance_file_type}", "-i", f"cache/audios/{self.video_id}.{self.audio_instance_file_type}", "-c", "copy", f"cache/media/{self.video_id}.{self.format}"])
+                subprocess.run([ffmpeg_path, "-i", f"cache/videos/{self.video_id}.{self.video_instance_file_type}", "-i", f"cache/audios/{self.video_id}.{self.audio_instance_file_type}", "-c", "copy", f"cache/media/{self.video_id}.{self.format}"], env=clean_subprocess_env())
                 log.debug("ffmpeg ran successfully on audio/video merging")
                 os.remove(f"cache/videos/{self.video_id}.{self.video_instance_file_type}")
                 os.remove(f"cache/audios/{self.video_id}.{self.audio_instance_file_type}")
@@ -532,8 +552,8 @@ class YTDownloader(Qt.QMainWindow):
                         return
                 self.finished.emit()  # send the finished signal only if the thread is not stopped
             
-            except urllib.error.URLError:  # if there is no internet
-                log.error("Couldn't search for videos: urllib error")
+            except urllib.error.URLError as e:  # if there is no internet
+                log.error(f"Couldn't search for videos: urllib error: {e.reason}")
                 self.search_results = []
                 self.preview = YTDownloader.VideoInfos("00000000000")
                 self.preview.get_data()
@@ -561,8 +581,8 @@ class YTDownloader(Qt.QMainWindow):
                 self.channel_name = self.video.author  # channel name
                 self.download_video_thumbnail("cache/thumbnails")  # download the video thumbnail in the cache folder
                 self.thumbnail_path = f"cache/thumbnails/{self.video_id}.jpg"  # thumbnail path
-            except urllib.error.URLError:
-                log.warning(f"Couldn't get info for video to download {self.video_id}")
+            except urllib.error.URLError as e:
+                log.warning(f"Couldn't get info for video to download {self.video_id}: {e.reason}")
                 self.video_title = "No internet"
                 self.channel_name = "Check your network connection"
                 self.thumbnail_path = asset("no_internet.png")
