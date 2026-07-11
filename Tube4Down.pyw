@@ -20,9 +20,7 @@ import time
 import io
 import zipfile
 import tarfile
-import darkdetect
 import subprocess
-import re
 
 
 def clean_subprocess_env():
@@ -36,33 +34,29 @@ def clean_subprocess_env():
             env.pop("LD_LIBRARY_PATH", None)
     return env
 
-
-if sys.platform != "win32":  # fix dark mode detection
-    import subprocess
+# detect dark mode
+if sys.platform == "win32":  # on windows, use darkdetect
+    import darkdetect
+    IS_DARK = darkdetect.isDark()
+else:  # use xdg desktop portal
     import re
-
-    def _portal_theme():
-        """query xdg desktop portal for system color scheme"""
-        try:
-            result = subprocess.run(
-                ["gdbus", "call", "--session",
-                 "--dest", "org.freedesktop.portal.Desktop",
-                 "--object-path", "/org/freedesktop/portal/desktop",
-                 "--method", "org.freedesktop.portal.Settings.Read",
-                 "org.freedesktop.appearance", "color-scheme"],
-                capture_output=True, text=True, timeout=2,
-                env=clean_subprocess_env(),
-            )
-            match = re.search(r"uint32 (\d)", result.stdout)
-            if match:
-                return "Dark" if int(match.group(1)) == 1 else "Light"
-        except Exception:
-            pass
-        return "Light"
-
-    darkdetect.theme = _portal_theme
-    darkdetect.isDark = lambda: _portal_theme() == "Dark"
-    darkdetect.isLight = lambda: _portal_theme() == "Light"
+    IS_DARK = False
+    try:
+        result = subprocess.run(
+            ["gdbus", "call", "--session",
+                "--dest", "org.freedesktop.portal.Desktop",
+                "--object-path", "/org/freedesktop/portal/desktop",
+                "--method", "org.freedesktop.portal.Settings.Read",
+                "org.freedesktop.appearance", "color-scheme"],
+            capture_output=True, text=True, timeout=2,
+            env=clean_subprocess_env(),
+        )
+        match = re.search(r"uint32 (\d)", result.stdout)
+        if match:
+            IS_DARK = True if int(match.group(1)) == 1 else False
+            print(IS_DARK)
+    except Exception:
+        pass
 
 
 # get script location for assets
@@ -73,7 +67,7 @@ else:
 
 def asset(relative_path):
     """Resolve a path inside the assets folder regardless of the current working directory"""
-    if darkdetect.isDark():
+    if IS_DARK:
         return os.path.join(SCRIPT_DIR, "assets", "dark", relative_path)
     else:
         return os.path.join(SCRIPT_DIR, "assets", "light", relative_path)
@@ -1215,7 +1209,7 @@ if __name__ == "__main__":
             log.debug("Set flags for web engine")
         App = Qt.QApplication(sys.argv)  # creating the app
         App.setStyle("fusion")
-        if darkdetect.isDark():
+        if IS_DARK:
             # dark mode palette
             palette = QtGui.QPalette()
             palette.setColor(QtGui.QPalette.Window, QtGui.QColor(53, 53, 53))
