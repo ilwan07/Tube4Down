@@ -96,6 +96,16 @@ handler.setFormatter(log.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
 log.basicConfig(level=log.DEBUG, handlers=[handler])  # configure logging
 
 
+class ClickableLabel(Qt.QLabel):
+    """QLabel that emits a clicked signal on left mouse click, used for the play-on-click thumbnail"""
+    clicked = pyqtSignal()
+
+    def mousePressEvent(self, event):
+        if event.button() == QtCore.Qt.LeftButton:
+            self.clicked.emit()
+        super().mousePressEvent(event)
+
+
 class YTDownloader(Qt.QMainWindow):
     """YouTube video downloader with GUI"""
 
@@ -399,8 +409,11 @@ class YTDownloader(Qt.QMainWindow):
                 self.channel_id = self.video.channel_id
                 self.channel_url = self.video.channel_url
                 self.embed_url = self.video.embed_url
+                self.video_thumbnail = self.video.thumbnail_url
                 self.channel_icon_path = f"cache/channel_icons/{self.channel_id}.jpg"
                 self.channel_icon_pixmap = self.channel_icon_pixmap = None
+                self.download_video_thumbnail()
+                self.thumbnail_path = f"cache/thumbnails/{self.video_id}.jpg"
             except:
                 log.warning(f"Couldn't get video {self.video_id}")
                 self.video = None
@@ -408,6 +421,7 @@ class YTDownloader(Qt.QMainWindow):
                 self.channel_name = "Can't get video information"
                 self.channel_id = None
                 self.embed_url = "https://youtube.com"
+                self.thumbnail_path = asset("no_internet.png")
                 self.channel_icon_path = asset("no_internet.png")
                 self.channel_url = "https://youtube.com"
                 self.channel_icon_pixmap = self.channel_icon_pixmap = None
@@ -434,17 +448,33 @@ class YTDownloader(Qt.QMainWindow):
             self.add_button.setIcon(QtGui.QIcon(asset("add.png")))
             self.main_layout.addWidget(self.add_button)
 
-            # creating the video preview
-            self.web_view = QtWeb.QWebEngineView()
-            self.web_view.setFixedHeight(self.preview_height)
-            self.web_view.setFixedWidth(round(16/9*self.preview_height))
-            htmlString = ('<style>'
-              'html, body { margin:0; padding:0; width:100%; height:100%; overflow:hidden; }'
-              'iframe { display:block; width:100%; height:100%; border:0; }'
-              '</style>'
-              '<iframe src="' + self.embed_url + '" allow="encrypted-media"></iframe>')
-            self.web_view.setHtml(htmlString, QtCore.QUrl("https://example.com"))  # needs a real domain for embed
-            self.main_layout.addWidget(self.web_view)
+            # creating the video preview, static thumbnail by default, becomes a live player when clicked
+            self.preview_stack = Qt.QStackedWidget()
+            self.preview_stack.setFixedHeight(self.preview_height)
+            self.preview_stack.setFixedWidth(round(16/9*self.preview_height))
+
+            self.thumbnail = ClickableLabel()
+            self.thumbnail_pixmap = QtGui.QPixmap(self.thumbnail_path)
+            self.thumbnail_pixmap = self.thumbnail_pixmap.scaled(round(16/9*self.preview_height), self.preview_height, QtCore.Qt.KeepAspectRatio)
+
+            # overlay a semi-transparent play icon in the center to signal the thumbnail is clickable
+            play_icon_path = asset("play.png")
+            play_icon_size = round(self.preview_height * 0.50)
+            play_icon = QtGui.QPixmap(play_icon_path).scaled(play_icon_size, play_icon_size, QtCore.Qt.KeepAspectRatio, QtCore.Qt.SmoothTransformation)
+            painter = QtGui.QPainter(self.thumbnail_pixmap)
+            painter.setOpacity(0.8)
+            x = (self.thumbnail_pixmap.width() - play_icon.width()) // 2
+            y = (self.thumbnail_pixmap.height() - play_icon.height()) // 2
+            painter.drawPixmap(x, y, play_icon)
+            painter.end()
+
+            self.thumbnail.setPixmap(self.thumbnail_pixmap)
+            self.thumbnail.setCursor(QtCore.Qt.PointingHandCursor)
+            self.thumbnail.setAlignment(QtCore.Qt.AlignCenter)
+            self.thumbnail.clicked.connect(self.play_video)
+            self.preview_stack.addWidget(self.thumbnail)
+
+            self.main_layout.addWidget(self.preview_stack)
 
             # creating the infos layout
             self.infos_widget = Qt.QWidget()
@@ -488,6 +518,51 @@ class YTDownloader(Qt.QMainWindow):
             
             log.debug(f"Built preview widget for video {self.video_id}")
         
+        def download_video_thumbnail(self):
+            """downloads the video thumbnail in the given folder"""
+            thumb_path = "cache/thumbnails"
+            if not os.path.exists(thumb_path):
+                os.makedirs(thumb_path)  # create the destination folder if it doesn't exist
+            if os.path.exists(thumb_path):
+                pass  # already downloaded
+            image_data = requests.get(self.video_thumbnail).content  # get the image data
+            image = Image.open(io.BytesIO(image_data))  # open the image as an image object
+
+            # crop the image to 16:9 ratio
+            width, height = image.size
+            new_width, new_height = width, int(width * 9/16)
+            if new_height > height:
+                new_height, new_width = height, int(new_height * 16/9)
+            left = (width - new_width) / 2
+            top = (height - new_height) / 2
+            right = (width + new_width) / 2
+            bottom = (height + new_height) / 2
+
+            image = image.crop((left, top, right, bottom))
+            image.save(f"{thumb_path}/{self.video_id}.jpg", "JPEG")  # save the image in the file
+            log.debug(f"Downloaded thumbnail for video {self.video_id}")
+
+        def play_video(self):
+            """swaps the static thumbnail for a live, autoplaying (muted) embed with a custom unmute button"""
+            self.web_view = QtWeb.QWebEngineView()
+            htmlString = ('<style>'
+            'html, body { margin:0; padding:0; width:100%; height:100%; overflow:hidden; background:#000; }'
+            'iframe { display:block; width:100%; height:100%; border:0; }'
+            '#unmute-btn { position:absolute; bottom:6px; right:6px; z-index:10;'
+            ' background:rgba(0,0,0,0.75); color:#fff; border:1px solid #fff; border-radius:4px;'
+            ' padding:3px 7px; font-family:sans-serif; font-size:11px; cursor:pointer; }'
+            '</style>'
+            '<iframe id="player" src="' + self.embed_url + '?autoplay=1&mute=1&enablejsapi=1" allow="autoplay; encrypted-media"></iframe>'
+            '<button id="unmute-btn" onclick="'
+            'var f=document.getElementById(\'player\').contentWindow;'
+            'f.postMessage(JSON.stringify({event:\'command\',func:\'unMute\',args:[]}),\'*\');'
+            'f.postMessage(JSON.stringify({event:\'command\',func:\'setVolume\',args:[100]}),\'*\');'
+            'this.style.display=\'none\';'
+            '">🔇 Unmute</button>')
+            self.web_view.setHtml(htmlString, QtCore.QUrl("https://example.com"))
+            self.preview_stack.addWidget(self.web_view)
+            self.preview_stack.setCurrentWidget(self.web_view)
+
         def get_channel_icon_url(self) -> str:
             """finds the channel icon URL from the channel page"""
             response = requests.get(self.channel_url)  # get the channel page html content
