@@ -91,9 +91,47 @@ if getattr(sys, "frozen", False):
         os.environ["SSL_CERT_FILE"] = cert_path
         os.environ["REQUESTS_CA_BUNDLE"] = cert_path
 
-handler = RotatingFileHandler("latest.log", maxBytes=1048576, backupCount=0)  # 1MiB limit
+class TrimmingFileHandler(log.Handler):
+    """File handler that keeps the log file under maxBytes by deleting the
+    oldest lines (from the top) once the limit is exceeded, instead of
+    rotating to numbered backup files. Always keeps only latest.log."""
+
+    def __init__(self, filename, maxBytes=1048576, encoding="utf-8"):
+        super().__init__()
+        self.filename = filename
+        self.maxBytes = maxBytes
+        self.encoding = encoding
+
+    def emit(self, record):
+        try:
+            msg = self.format(record) + "\n"
+            with open(self.filename, "a", encoding=self.encoding) as f:
+                f.write(msg)
+            self._trim_if_needed()
+        except Exception:
+            self.handleError(record)
+
+    def _trim_if_needed(self):
+        try:
+            size = os.path.getsize(self.filename)
+        except OSError:
+            return
+        if size <= self.maxBytes:
+            return
+        with open(self.filename, "rb") as f:
+            data = f.read()
+        excess = size - self.maxBytes
+        # move the cut point to the start of the next full line so we
+        # never leave a truncated half-line at the top of the file
+        newline_pos = data.find(b"\n", excess)
+        data = data[newline_pos + 1:] if newline_pos != -1 else b""
+        with open(self.filename, "wb") as f:
+            f.write(data)
+
+
+handler = TrimmingFileHandler("latest.log", maxBytes=2**20)  # 1MiB limit, keeps latest lines only
 handler.setFormatter(log.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
-log.basicConfig(level=log.DEBUG, handlers=[handler])  # configure logging
+log.basicConfig(level=log.DEBUG, handlers=[handler])
 
 
 class ClickableLabel(Qt.QLabel):
