@@ -17,7 +17,7 @@ Tube4Down is a convenient and user-friendly app that allows you to download almo
 To use the app:
 
 - For Windows, use either the portable app or install using the setup program
-- For Linux, use the flatpak
+- For Linux, install the flatpak or use the appimage executable
 - Or use the Python source code directly for both (ensure you have the required libraries installed in this case)
 - Just launch the program, and enjoy !
 
@@ -42,7 +42,7 @@ Tube4Down est une application pratique et adaptée aux utilisateurs qui permet d
 Pour utiliser l'application :
 
 - Pour Windows, utilisez l'application portable, ou alors installez l'app en utilisant l'installateur
-- Pour linux, utilisez le flatpak
+- Pour linux, installez le flatpak ou utilisez l'exécutable appimage
 - Ou utilisez directement le code source Python pour les deux (vérifiez que vous possédez les bibliothèques nécessaires dans ce cas)
 - Lancez simplement le programme, et profitez !
 

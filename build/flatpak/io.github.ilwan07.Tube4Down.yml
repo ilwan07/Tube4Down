@@ -7,6 +7,7 @@ command: tube4down
 finish-args:
   - --socket=wayland
   - --socket=fallback-x11
+  - --socket=pulseaudio
   - --share=ipc
   - --device=dri                 # GPU accel for Qt rendering
   - --share=network              # app downloads videos
