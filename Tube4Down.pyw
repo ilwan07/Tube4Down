@@ -54,7 +54,6 @@ else:  # use xdg desktop portal
         match = re.search(r"uint32 (\d)", result.stdout)
         if match:
             IS_DARK = True if int(match.group(1)) == 1 else False
-            print(IS_DARK)
     except Exception:
         pass
 
@@ -288,6 +287,7 @@ class YTDownloader(Qt.QMainWindow):
                 # getting the file type
                 self.video_instance_file_type = self.video_instance.mime_type.split("/")[1]
                 self.total_size += self.video_instance.filesize
+                log.debug(f"Got best stream for video {self.video_id}: {self.used_quality}")
             
             if self.type == "audio" or self.has_audio:
                 # choosing the best audio quality
@@ -295,8 +295,8 @@ class YTDownloader(Qt.QMainWindow):
                 self.audio_instance = self.audio_instances.last()
                 self.audio_instance_file_type = self.audio_instance.mime_type.split("/")[1]
                 self.total_size += self.audio_instance.filesize
+                log.debug(f"Got best stream for audio {self.video_id}")
             self.found_stream = True
-            log.debug(f"Got best stream for video {self.video_id}: {self.used_quality}")
         
         def download_base_files(self):
             """Download the files (video and/or audio) with the default format in the cache (webp/mp4 for both video and audio)"""
@@ -316,7 +316,8 @@ class YTDownloader(Qt.QMainWindow):
                 ffmpeg_path = "ffmpeg/ffmpeg"
             log.debug(f"Using ffmpeg path {os.path.abspath(ffmpeg_path)}")
             if not os.path.exists(ffmpeg_path):
-                log.error("ffmpeg binary not found, this won't go well...")
+                log.critical("ffmpeg binary not found, can't process")
+                raise RuntimeError
             if self.type == "video" and not self.has_audio:  # only video
                 # convert the video to the desired format
                 if self.video_instance_file_type != self.format:
@@ -437,7 +438,11 @@ class YTDownloader(Qt.QMainWindow):
             self.web_view = QtWeb.QWebEngineView()
             self.web_view.setFixedHeight(self.preview_height)
             self.web_view.setFixedWidth(round(16/9*self.preview_height))
-            htmlString = '<style> body{margin:0px} </style> <iframe width="100%" height="100%" src="' + self.embed_url + '" frameborder="0" allow="autoplay; encrypted-media"></iframe>'
+            htmlString = ('<style>'
+              'html, body { margin:0; padding:0; width:100%; height:100%; overflow:hidden; }'
+              'iframe { display:block; width:100%; height:100%; border:0; }'
+              '</style>'
+              '<iframe src="' + self.embed_url + '" allow="encrypted-media"></iframe>')
             self.web_view.setHtml(htmlString, QtCore.QUrl("https://example.com"))  # needs a real domain for embed
             self.main_layout.addWidget(self.web_view)
 
